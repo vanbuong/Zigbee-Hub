@@ -1,10 +1,11 @@
 # Zigbee Hub (ESP32 + CC2652P7) — Functional Specification Document (FSD)
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** 2026-05-28  
 **Status:** Draft  
 **Changed (v1.1):** Storage layer replaced — NVS → LittleFS (JSON config + nanopb device files)  
-**Changed (v1.2):** Device Abstraction Layer added — typed Capability API hides ZCL internals from upper layer
+**Changed (v1.2):** Device Abstraction Layer added — typed Capability API hides ZCL internals from upper layer  
+**Changed (v1.3):** Physical user-button input (GPIO34) with multi-press detection (single / double / long)
 
 ---
 
@@ -129,6 +130,7 @@ upper-layer app  zb_cap_onoff_set(ieee, cap_id, true)
 **Power:**
 - ESP32-N16R2 and CC2652P7 operate at 3.3 V (assumed, regulated from USB or external supply).
 - CC2652P7 reset line is driven from an ESP32 GPIO to allow hard reset during init and firmware update.
+- A single momentary push-button is wired to ESP32 GPIO34 (input-only pin, external pull-up to 3.3 V; pressed = LOW) for user actions such as opening the network for join.
 
 ### 2.3 Software Architecture
 
@@ -505,6 +507,37 @@ ESP-IDF managed components are declared in `components/zb_storage/idf_component.
 - **FR-9.9** [Should]: New cluster schemas shall be registrable at runtime via
   `zb_schema_register(const zb_cluster_schema_t *schema)`, allowing application code
   to extend the built-in schema table without modifying framework source.
+
+#### FR-10: Physical User Button (`zb_button`)
+
+- **FR-10.1** [Must]: A single momentary push-button connected to a configurable
+  ESP32 GPIO (default GPIO34, input-only, external pull-up, active-low) shall be
+  sampled by the firmware as a user input device.
+- **FR-10.2** [Must]: The button driver shall debounce mechanical contact bounce
+  with a software filter (default 20 ms stable window).
+- **FR-10.3** [Must]: The button driver shall distinguish at least the following
+  press patterns and emit a corresponding event for each:
+    - **Single press** — one press-release with hold time shorter than the long-press
+      threshold; emitted after the multi-press timeout expires without a second press.
+    - **Double press** — two press-releases separated by less than the multi-press
+      timeout (default 400 ms).
+    - **Long press** — hold time exceeds the long-press threshold (default 1500 ms);
+      emitted once when the threshold is crossed, while the button is still held.
+- **FR-10.4** [Should]: Triple-press, quad-press, and very-long-press patterns shall
+  be representable by the event type enum so they can be added later without an
+  API break.
+- **FR-10.5** [Must]: Button events shall be delivered through the existing
+  `zb_subscribe` event bus as `ZB_EVENT_BUTTON` with the pattern carried in
+  `e->data.button.event` (a `zb_button_event_kind_t` enum value).
+- **FR-10.6** [Must]: A built-in default handler shall react to a **single press**
+  by enqueueing `zb_cmd_permit_join(CONFIG_ZB_BUTTON_PERMIT_JOIN_SECONDS)` (default
+  60 s). The handler shall not be invoked when the framework is not in READY state.
+- **FR-10.7** [Should]: GPIO pin, debounce window, long-press threshold,
+  multi-press timeout, and active-level polarity shall all be configurable via
+  Kconfig.
+- **FR-10.8** [Should]: The button driver shall use a single FreeRTOS task with a
+  short polling interval (default 10 ms) rather than per-edge interrupts, to keep
+  the debounce / multi-press timing self-contained and avoid ISR-from-task races.
 
 ### 4.2 Non-Functional Requirements
 
@@ -1128,6 +1161,10 @@ The hub will form a new network on next boot using compile-time Kconfig defaults
 | TC-3.17 | Cap event typed delivery | Subscribe with `ZB_CAP_ANY`; trigger attribute report from sensor | `zb_cap_event_t` delivered with `value.temperature_hundredths` populated; no raw bytes in callback |
 | TC-3.18 | Schema registration | Register custom cluster schema at runtime | `zb_cap_set/get` dispatch correctly for the new cluster ID |
 | TC-3.19 | Unknown cluster raw fallback | Receive attr report from cluster with no schema | `ZB_EVENT_ZNP_RAW_ATTR` emitted; `value.raw` contains attr_id + bytes; no crash |
+| TC-3.20 | Button single press → permit join | While in READY: press the GPIO34 button once and release within 1 s | `ZB_EVENT_BUTTON` (kind=SINGLE) delivered after multi-press timeout; `zb_cmd_permit_join(60)` enqueued; `ZDO_MGMT_PERMIT_JOIN_REQ` sent to coprocessor |
+| TC-3.21 | Button double press detected | Two presses within 400 ms | One `ZB_EVENT_BUTTON` with kind=DOUBLE; no SINGLE event emitted |
+| TC-3.22 | Button long press detected | Hold the button for ≥ 1.5 s | `ZB_EVENT_BUTTON` (kind=LONG) emitted once while still held; no SINGLE event on release |
+| TC-3.23 | Button debounce | Inject a 5 ms bounce burst on the input | No event emitted (signal not stable across debounce window) |
 
 ### 8.4 Phase 4 Verification — Firmware Update & Integration
 
@@ -1236,6 +1273,14 @@ The hub will form a new network on next boot using compile-time Kconfig defaults
 | FR-9.7 | Must | TC-3.17 | Covered |
 | FR-9.8 | Should | TC-3.19 | Covered |
 | FR-9.9 | Should | TC-3.18 | Covered |
+| FR-10.1 | Must   | TC-3.20 | Covered |
+| FR-10.2 | Must   | TC-3.23 | Covered |
+| FR-10.3 | Must   | TC-3.20, TC-3.21, TC-3.22 | Covered |
+| FR-10.4 | Should | —       | GAP (forward-compat enum; covered by code review) |
+| FR-10.5 | Must   | TC-3.20 | Covered |
+| FR-10.6 | Must   | TC-3.20 | Covered |
+| FR-10.7 | Should | TC-3.20 | Covered (Kconfig wired at build time) |
+| FR-10.8 | Should | —       | GAP (implementation detail; code review) |
 | NFR-6.1 | Should | TC-3.11, TC-3.12 | Covered |
 | NFR-6.2 | Should | TC-3.13, AT-03 | Covered |
 
