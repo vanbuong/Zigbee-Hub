@@ -67,16 +67,26 @@ menu "ZNP Transport"
         help
             PCA9538 IO bit driving the CC2652P7 BSL_INVOKE pin (active-low).
 
+    config ZNP_PCA9538_RST_GPIO
+        int "PCA9538 RESET GPIO pin (-1 = not wired)"
+        default 5
+        range -1 39
+        help
+            ESP32 GPIO connected to the PCA9538 RESET pin (active-low).
+            Pulsed low briefly at boot to bring the expander into a known
+            state before any I2C transactions. Set to -1 if the PCA9538
+            RESET pin is tied directly to VCC (no software control).
+
     config ZNP_SREQ_TIMEOUT_MS
         int "SREQ response timeout (ms)"
-        default 3000
+        default 1000
         range 500 10000
         help
             How long to wait for an SRSP after sending an SREQ.
 
     config ZNP_RESET_TIMEOUT_MS
         int "Reset indication timeout (ms)"
-        default 3000
+        default 6000
         range 1000 10000
         help
             How long to wait for SYS_RESET_IND after asserting the RESET GPIO.

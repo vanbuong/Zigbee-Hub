@@ -22,6 +22,7 @@ typedef struct {
     uint8_t     pca_addr;       /* PCA9538 7-bit I2C address (0x70..0x73) */
     uint8_t     pca_reset_bit;  /* PCA9538 bit driving CC2652P7 RESET */
     uint8_t     pca_bsl_bit;    /* PCA9538 bit driving CC2652P7 BSL_INVOKE */
+    int         pca_rst_gpio;   /* ESP32 GPIO -> PCA9538 RESET (active-low); -1 = none */
 
     uint32_t    sreq_timeout_ms;  /* SREQ→SRSP timeout in ms (default 3000) */
     uint32_t    reset_timeout_ms; /* Wait for SYS_RESET_IND after reset (default 3000) */

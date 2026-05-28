@@ -12,6 +12,7 @@
 #include "driver/uart.h"
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
+#include "esp_rom_sys.h"
 #include "esp_err.h"
 
 static const char *TAG = "znp_transport";
@@ -90,6 +91,29 @@ static esp_err_t pca_set_bit(uint8_t bit, bool high)
 
 static esp_err_t pca_init(const znp_transport_config_t *cfg)
 {
+    /* Pulse the PCA9538 hardware RESET pin (active-low) before any I2C
+     * traffic so the expander starts from a known state every cold boot.
+     * Datasheet requires only a few ns; we hold for 10 ms / wait 1 ms to be
+     * comfortable. Skip if not wired (pca_rst_gpio < 0). */
+    if (cfg->pca_rst_gpio >= 0) {
+        gpio_config_t io = {
+            .pin_bit_mask = (1ULL << cfg->pca_rst_gpio),
+            .mode         = GPIO_MODE_OUTPUT,
+            .pull_up_en   = GPIO_PULLUP_ENABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        ESP_RETURN_ON_ERROR(gpio_config(&io), TAG, "PCA9538 RST gpio_config failed");
+
+        gpio_set_level(cfg->pca_rst_gpio, 1);    /* ensure high before going low */
+        esp_rom_delay_us(100);
+        gpio_set_level(cfg->pca_rst_gpio, 0);    /* assert reset (active-low) */
+        vTaskDelay(pdMS_TO_TICKS(10));
+        gpio_set_level(cfg->pca_rst_gpio, 1);    /* release reset */
+        vTaskDelay(pdMS_TO_TICKS(1));            /* settle */
+        ESP_LOGI(TAG, "PCA9538 hardware reset pulsed on GPIO%d", cfg->pca_rst_gpio);
+    }
+
     i2c_master_bus_config_t bus_cfg = {
         .clk_source                   = I2C_CLK_SRC_DEFAULT,
         .i2c_port                     = cfg->pca_i2c_port,

@@ -346,8 +346,9 @@ esp_err_t zb_framework_init(const zb_config_t *cfg)
         .pca_addr         = cfg->pca_addr,
         .pca_reset_bit    = cfg->pca_reset_bit,
         .pca_bsl_bit      = cfg->pca_bsl_bit,
-        .sreq_timeout_ms  = CONFIG_ZNP_SREQ_TIMEOUT_MS,
-        .reset_timeout_ms = CONFIG_ZNP_RESET_TIMEOUT_MS,
+        .pca_rst_gpio     = cfg->pca_rst_gpio,
+        .sreq_timeout_ms  = 1000,
+        .reset_timeout_ms = 6000,
     };
     esp_err_t err = znp_transport_init(&transport_cfg);
     if (err != ESP_OK) {

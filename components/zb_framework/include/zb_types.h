@@ -35,6 +35,7 @@ typedef struct {
     uint8_t     pca_addr;       /* PCA9538 7-bit I2C address */
     uint8_t     pca_reset_bit;  /* PCA9538 bit driving CC2652P7 RESET (active-low) */
     uint8_t     pca_bsl_bit;    /* PCA9538 bit driving CC2652P7 BSL_INVOKE (active-low) */
+    int         pca_rst_gpio;   /* ESP32 GPIO -> PCA9538 RESET (active-low); -1 = none */
 } zb_config_t;
 
 /* ---- Version info ---- */

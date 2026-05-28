@@ -105,6 +105,7 @@ void app_main(void)
         .pca_addr       = CONFIG_ZNP_PCA9538_ADDR,
         .pca_reset_bit  = CONFIG_ZNP_PCA9538_RESET_BIT,
         .pca_bsl_bit    = CONFIG_ZNP_PCA9538_BSL_BIT,
+        .pca_rst_gpio   = CONFIG_ZNP_PCA9538_RST_GPIO,
     };
     memcpy(cfg.nwk_key, DEFAULT_NWK_KEY, sizeof(DEFAULT_NWK_KEY));
 
