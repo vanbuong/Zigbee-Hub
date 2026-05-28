@@ -43,6 +43,18 @@ esp_err_t zb_cmd_change_channel(uint8_t channel)
     return ESP_OK;
 }
 
+esp_err_t zb_cmd_reconfigure(void)
+{
+    if (!s_queue) return ESP_ERR_INVALID_STATE;
+    zb_cmd_t cmd = { .type = ZB_CMD_RECONFIGURE };
+    if (xQueueSend(s_queue, &cmd, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW(TAG, "command queue full — reconfigure dropped");
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGD(TAG, "reconfigure enqueued");
+    return ESP_OK;
+}
+
 BaseType_t zb_cmd_dequeue(zb_cmd_t *cmd, TickType_t ticks_to_wait)
 {
     if (!s_queue) return pdFALSE;

@@ -8,6 +8,7 @@
 typedef enum {
     ZB_CMD_PERMIT_JOIN = 0,
     ZB_CMD_CHANGE_CHANNEL,
+    ZB_CMD_RECONFIGURE,   /* trigger RECONFIGURING (no params); used by zb_network_param_set */
 } zb_cmd_type_t;
 
 typedef struct {
@@ -37,6 +38,13 @@ esp_err_t zb_cmd_permit_join(uint8_t duration_s);
  * @param channel  2.4 GHz channel number (11-26).
  */
 esp_err_t zb_cmd_change_channel(uint8_t channel);
+
+/**
+ * Trigger a full network reconfigure (clears NV, re-forms).
+ * Enqueues ZB_CMD_RECONFIGURE; the framework processes it on next READY iteration.
+ * Intended for use by zb_network_param_set() when params change while READY.
+ */
+esp_err_t zb_cmd_reconfigure(void);
 
 /**
  * Internal: dequeue the next pending command (used by framework_task).

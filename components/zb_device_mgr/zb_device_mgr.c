@@ -246,6 +246,18 @@ esp_err_t zb_dev_get_caps(uint64_t ieee_addr, zb_cap_id_t *list, uint8_t *count)
     return ESP_OK;
 }
 
+int zb_dev_mgr_count(void)
+{
+    if (!s_mutex) return 0;
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    int n = 0;
+    for (int i = 0; i < ZB_DEV_MAX_DEVICES; i++) {
+        if (s_devices[i].active) n++;
+    }
+    xSemaphoreGive(s_mutex);
+    return n;
+}
+
 /* ---- ZCL command send ---- */
 
 esp_err_t zb_zcl_send(uint64_t ieee, zb_cap_id_t cap,

@@ -45,4 +45,23 @@ typedef struct {
     char cc26xx_fw[64];         /* Z-Stack version string from SYS_VERSION */
 } zb_versions_t;
 
+/* ---- Network info (FR-11) ---- */
+
+typedef enum {
+    ZB_NET_STATUS_OFFLINE = 0,   /* UNINITIALIZED or ZNP_INIT — coprocessor not responding */
+    ZB_NET_STATUS_FORMING,       /* NETWORK_CHECK / FORMING / RECONFIGURING */
+    ZB_NET_STATUS_READY,         /* READY — coordinator operational, no join window open */
+    ZB_NET_STATUS_PERMIT_JOIN,   /* READY — join window open (permit_join_ttl > 0) */
+    ZB_NET_STATUS_FW_UPDATE,     /* FW_UPDATE — normal traffic suspended */
+} zb_network_status_t;
+
+typedef struct {
+    zb_network_status_t status;          /* high-level derived status (FR-11.3) */
+    zb_state_t          fw_state;        /* raw framework state machine value */
+    uint16_t            pan_id;          /* active PAN ID; 0 if not yet configured */
+    uint8_t             channel;         /* active channel; 0 if not yet configured */
+    uint8_t             permit_join_ttl; /* seconds remaining in join window; 0 = closed */
+    uint16_t            device_count;    /* devices in the in-memory registry */
+} zb_network_info_t;
+
 /* Event types are defined in zb_subscribe.h (zb_device_mgr component) */

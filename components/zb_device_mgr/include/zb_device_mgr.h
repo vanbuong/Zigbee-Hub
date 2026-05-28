@@ -39,6 +39,9 @@ esp_err_t zb_dev_mgr_learn_cap(uint64_t ieee_addr, zb_cap_id_t cap);
 /* Enumerate capabilities for a device */
 esp_err_t zb_dev_get_caps(uint64_t ieee_addr, zb_cap_id_t *list, uint8_t *count);
 
+/* Return the number of currently active devices in the registry (FR-11) */
+int zb_dev_mgr_count(void);
+
 /* Main AREQ dispatcher — called from framework handle_ready() for every AREQ */
 void zb_dev_mgr_on_areq(const znp_frame_t *areq);
 

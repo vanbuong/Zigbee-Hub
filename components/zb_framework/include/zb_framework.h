@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include "zb_types.h"
+#include "zb_storage.h"   /* zb_net_config_t — needed by zb_network_param_set */
 
 /**
  * Initialize the Zigbee framework with the given hardware and network config.
@@ -26,3 +27,17 @@ zb_state_t zb_framework_get_state(void);
  * cc26xx_fw is only valid after the state machine has passed ZNP_INIT.
  */
 esp_err_t zb_framework_get_versions(zb_versions_t *out);
+
+/**
+ * Return a snapshot of the current network state (FR-11.1).
+ * Safe to call from any task at any framework state — no ZNP round-trip.
+ * Fields that are not yet meaningful are zeroed.
+ */
+esp_err_t zb_network_info_get(zb_network_info_t *out);
+
+/**
+ * Persist updated network parameters to /zb/config.json (FR-11.4).
+ * If the framework is currently in READY state and PAN ID or channel differs
+ * from the active network, a RECONFIGURING transition is triggered.
+ */
+esp_err_t zb_network_param_set(const zb_net_config_t *cfg);

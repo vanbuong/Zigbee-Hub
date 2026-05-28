@@ -28,6 +28,12 @@ static zb_state_t    s_state = ZB_STATE_UNINITIALIZED;
 static zb_versions_t s_versions;
 static bool          s_initialized = false;
 
+/* Network info state (FR-11) — written by framework task, read-only elsewhere */
+static volatile uint16_t   s_active_pan_id          = 0;
+static volatile uint8_t    s_active_channel          = 0;
+/* permit_join deadline in FreeRTOS ticks: 0=closed, UINT32_MAX=indefinite */
+static volatile TickType_t s_permit_join_deadline    = 0;
+
 /* ---- State helpers ---- */
 
 static void set_state(zb_state_t new_state)
@@ -66,6 +72,11 @@ static void load_net_config(uint16_t *pan_id, uint8_t *channel, uint8_t nwk_key[
             memcpy(nwk_key, stored.nwk_key, 16);
         }
     }
+
+    /* Cache for zb_network_info_get() — read-only after this point until
+     * the next reconfigure cycle (FR-11.2) */
+    s_active_pan_id  = *pan_id;
+    s_active_channel = *channel;
 }
 
 static void save_net_config(uint16_t pan_id, uint8_t channel, const uint8_t nwk_key[16])
@@ -178,9 +189,22 @@ static esp_err_t handle_reconfiguring(uint16_t pan_id, uint8_t channel,
 static bool process_cmd(const zb_cmd_t *cmd)
 {
     switch (cmd->type) {
-    case ZB_CMD_PERMIT_JOIN:
-        zb_net_permit_join(cmd->params.duration_s);
+    case ZB_CMD_PERMIT_JOIN: {
+        uint8_t dur = cmd->params.duration_s;
+        zb_net_permit_join(dur);
+        /* Update permit-join deadline for zb_network_info_get() (FR-11.6) */
+        if (dur == 0) {
+            s_permit_join_deadline = 0;
+        } else if (dur == 0xFF) {
+            s_permit_join_deadline = (TickType_t)UINT32_MAX;
+        } else {
+            TickType_t dl = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)dur * 1000);
+            /* Avoid the UINT32_MAX sentinel value */
+            if (dl == (TickType_t)UINT32_MAX) dl--;
+            s_permit_join_deadline = dl;
+        }
         break;
+    }
     case ZB_CMD_CHANGE_CHANNEL:
         /* Save new channel to config.json; re-init will detect mismatch → RECONFIGURING */
         {
@@ -190,6 +214,8 @@ static bool process_cmd(const zb_cmd_t *cmd)
             zb_storage_config_save(&cfg);
         }
         return true;  /* trigger re-init */
+    case ZB_CMD_RECONFIGURE:
+        return true;  /* trigger re-init; new params already saved to config.json */
     }
     return false;
 }
@@ -208,6 +234,7 @@ static void handle_ready(bool *should_reinit)
         zb_cmd_t cmd;
         while (zb_cmd_dequeue(&cmd, 0) == pdTRUE) {
             if (process_cmd(&cmd)) {
+                s_permit_join_deadline = 0;
                 zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_LOST });
                 *should_reinit = true;
                 return;
@@ -221,6 +248,7 @@ static void handle_ready(bool *should_reinit)
 
         if (areq.cmd_type == ZNP_SUBSYS_SYS_AREQ && areq.cmd_id == SYS_RESET_IND_CMD) {
             ESP_LOGW(TAG, "unexpected SYS_RESET_IND — re-initializing");
+            s_permit_join_deadline = 0;
             zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_LOST });
             *should_reinit = true;
             return;
@@ -296,6 +324,82 @@ static void framework_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
+}
+
+/* ---- Network info & param API (FR-11) ---- */
+
+esp_err_t zb_network_info_get(zb_network_info_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+
+    out->fw_state     = s_state;
+    out->pan_id       = s_active_pan_id;
+    out->channel      = s_active_channel;
+    out->device_count = (uint16_t)zb_dev_mgr_count();
+
+    /* Compute permit_join_ttl from stored deadline (FR-11.6) */
+    TickType_t dl = s_permit_join_deadline;
+    if (dl == 0) {
+        out->permit_join_ttl = 0;
+    } else if (dl == (TickType_t)UINT32_MAX) {
+        out->permit_join_ttl = 0xFF;
+    } else {
+        int32_t remaining = (int32_t)(dl - xTaskGetTickCount());
+        if (remaining <= 0) {
+            out->permit_join_ttl = 0;
+        } else {
+            uint32_t secs = (uint32_t)remaining / configTICK_RATE_HZ;
+            out->permit_join_ttl = (secs > 254) ? 254 : (uint8_t)secs;
+        }
+    }
+
+    /* Derive high-level status (FR-11.3) */
+    switch (out->fw_state) {
+    case ZB_STATE_UNINITIALIZED:
+    case ZB_STATE_ZNP_INIT:
+        out->status = ZB_NET_STATUS_OFFLINE;
+        break;
+    case ZB_STATE_NETWORK_CHECK:
+    case ZB_STATE_FORMING:
+    case ZB_STATE_RECONFIGURING:
+        out->status = ZB_NET_STATUS_FORMING;
+        break;
+    case ZB_STATE_READY:
+        out->status = (out->permit_join_ttl > 0)
+                      ? ZB_NET_STATUS_PERMIT_JOIN
+                      : ZB_NET_STATUS_READY;
+        break;
+    case ZB_STATE_FW_UPDATE:
+        out->status = ZB_NET_STATUS_FW_UPDATE;
+        break;
+    default:
+        out->status = ZB_NET_STATUS_OFFLINE;
+        break;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t zb_network_param_set(const zb_net_config_t *cfg)
+{
+    if (!cfg) return ESP_ERR_INVALID_ARG;
+
+    esp_err_t err = zb_storage_config_save(cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "zb_network_param_set: config save failed: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    /* If READY and PAN ID or channel changed, trigger RECONFIGURING (FR-11.4) */
+    if (s_state == ZB_STATE_READY &&
+        (cfg->pan_id != s_active_pan_id || cfg->channel != s_active_channel)) {
+        ESP_LOGI(TAG, "network params changed (pan_id=0x%04x ch=%d) — triggering reconfigure",
+                 cfg->pan_id, cfg->channel);
+        return zb_cmd_reconfigure();
+    }
+
+    return ESP_OK;
 }
 
 /* ---- Default button handler (FR-10.6) ---- */
