@@ -2,6 +2,7 @@
 #include "zb_network.h"
 #include "zb_types.h"
 #include "zb_storage.h"
+#include "zb_device_mgr.h"
 #include "znp_transport.h"
 #include "znp_mt_protocol.h"
 #include "znp_types.h"
@@ -79,16 +80,6 @@ static void save_net_config(uint16_t pan_id, uint8_t channel, const uint8_t nwk_
     }
 }
 
-/* Stub callback for device loading at bootup — Phase 3 replaces with device manager. */
-static void on_device_loaded(const ZbDeviceRecord *dev, void *ctx)
-{
-    int *count = (int *)ctx;
-    ESP_LOGI(TAG, "  restored device %016llx (nwk=0x%04x, %d endpoint(s))",
-             (unsigned long long)dev->ieee_addr,
-             (unsigned)dev->network_addr,
-             (int)dev->endpoints_count);
-    (*count)++;
-}
 
 /* ---- State handlers ---- */
 
@@ -109,6 +100,12 @@ static esp_err_t handle_znp_init(void)
     err = zb_net_get_version(s_versions.cc26xx_fw, sizeof(s_versions.cc26xx_fw));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SYS_VERSION failed — continuing without version info");
+    }
+
+    /* Register coordinator AF endpoint so the stack delivers AF_INCOMING_MSG AREQs */
+    err = zb_net_af_register(1);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "AF_REGISTER failed — device attribute reports won't be received");
     }
 
     return ESP_OK;
@@ -179,12 +176,6 @@ static void handle_ready(bool *should_reinit)
     set_state(ZB_STATE_READY);
     ESP_LOGI(TAG, "network ready — coordinator operational");
 
-    /* Restore known devices from LittleFS on every READY entry */
-    int dev_count = 0;
-    ESP_LOGI(TAG, "loading device registry from storage...");
-    zb_storage_device_load_all(on_device_loaded, &dev_count);
-    ESP_LOGI(TAG, "device registry restored: %d device(s)", dev_count);
-
     znp_frame_t areq;
     for (;;) {
         if (znp_transport_receive_areq(&areq, portMAX_DELAY) != pdTRUE) {
@@ -197,9 +188,8 @@ static void handle_ready(bool *should_reinit)
             return;
         }
 
-        /* Log all other AREQs at debug level for now (Phase 3: device manager) */
-        ESP_LOGD(TAG, "AREQ cmd_type=0x%02x cmd_id=0x%02x len=%d",
-                 areq.cmd_type, areq.cmd_id, areq.payload_len);
+        /* Dispatch all other AREQs to device manager (join, leave, attr reports) */
+        zb_dev_mgr_on_areq(&areq);
     }
 }
 
@@ -292,6 +282,13 @@ esp_err_t zb_framework_init(const zb_config_t *cfg)
     if (storage_err != ESP_OK) {
         ESP_LOGE(TAG, "storage init failed: %s", esp_err_to_name(storage_err));
         return storage_err;
+    }
+
+    /* Initialize device manager (loads schemas + restores registry from LittleFS) */
+    esp_err_t dm_err = zb_dev_mgr_init();
+    if (dm_err != ESP_OK) {
+        ESP_LOGE(TAG, "device manager init failed: %s", esp_err_to_name(dm_err));
+        return dm_err;
     }
 
     /* Initialize ZNP transport */

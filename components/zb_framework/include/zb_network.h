@@ -14,6 +14,14 @@
 esp_err_t zb_net_ping(void);
 
 /**
+ * Register an AF endpoint on the coordinator (AF_REGISTER SREQ).
+ * Must be called during ZNP_INIT so the coordinator can receive
+ * AF_INCOMING_MSG AREQs from joined devices.
+ * @param ep  Endpoint number (use 1 for the default coordinator endpoint).
+ */
+esp_err_t zb_net_af_register(uint8_t ep);
+
+/**
  * Send SYS_VERSION SREQ and copy the version string into out[len].
  */
 esp_err_t zb_net_get_version(char *out, size_t len);

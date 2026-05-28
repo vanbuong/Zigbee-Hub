@@ -9,8 +9,42 @@
 
 #include "zb_framework.h"
 #include "zb_types.h"
+#include "zb_cap.h"
+#include "zb_device_mgr.h"
 
 static const char *TAG = "main";
+
+/* Capability event callback — upper layer sees no raw ZCL details */
+static void on_cap_event(const zb_cap_event_t *e, void *ctx)
+{
+    uint16_t cluster = ZB_CAP_CLUSTER(e->cap_id);
+    switch (cluster) {
+    case ZCL_CLUSTER_ONOFF:
+        ESP_LOGI(TAG, "[cap] %016llx OnOff=%s",
+                 (unsigned long long)e->ieee_addr,
+                 e->value.on_off ? "ON" : "OFF");
+        break;
+    case ZCL_CLUSTER_LEVEL:
+        ESP_LOGI(TAG, "[cap] %016llx Level=%d",
+                 (unsigned long long)e->ieee_addr, e->value.level);
+        break;
+    case ZCL_CLUSTER_TEMPERATURE:
+        ESP_LOGI(TAG, "[cap] %016llx Temp=%.2f C",
+                 (unsigned long long)e->ieee_addr,
+                 e->value.temperature_hundredths / 100.0f);
+        break;
+    case ZCL_CLUSTER_HUMIDITY:
+        ESP_LOGI(TAG, "[cap] %016llx Humidity=%.2f%%",
+                 (unsigned long long)e->ieee_addr,
+                 e->value.humidity_hundredths / 100.0f);
+        break;
+    default:
+        ESP_LOGI(TAG, "[cap] %016llx cluster=0x%04x attr=0x%04x",
+                 (unsigned long long)e->ieee_addr,
+                 cluster, e->value.raw.attr_id);
+        break;
+    }
+}
 
 /* Default network key — replace with your own 16-byte key */
 static const uint8_t DEFAULT_NWK_KEY[16] = {
@@ -66,6 +100,13 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "init complete — hub running");
+
+    /* ---- Capability API demonstration ---- */
+
+    /* Example: subscribe to ALL events from any device using cap abstraction.
+     * Upper-layer code never sees raw ZCL cluster IDs or endpoint numbers. */
+    static const uint64_t DEMO_IEEE = 0x00124B001234ABCDULL; /* replace with real device */
+    zb_cap_subscribe(DEMO_IEEE, ZB_CAP_ANY, on_cap_event, NULL);
 
     /* Keep app_main alive; the framework task handles everything from here */
     for (;;) {

@@ -1,15 +1,14 @@
 idf_component_register(
     SRCS
-        "zb_framework.c"
-        "zb_network.c"
+        "zb_cap.c"
+        "zb_cap_clusters.c"
+        "zb_device_mgr.c"
     INCLUDE_DIRS
         "include"
     REQUIRES
         znp_transport
         zb_storage
-        zb_device_mgr
         freertos
-        esp_common
         log
-        app_update
+        esp_common
 )

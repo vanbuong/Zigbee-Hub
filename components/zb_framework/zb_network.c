@@ -215,6 +215,38 @@ esp_err_t zb_net_form_network(uint16_t pan_id, uint8_t channel,
     return ESP_OK;
 }
 
+esp_err_t zb_net_af_register(uint8_t ep)
+{
+    /*
+     * AF_REGISTER SREQ payload:
+     * endpoint[1], profile_id[2], device_id[2], device_ver[1],
+     * latency[1], num_in_clusters[1], num_out_clusters[1]
+     * (0 clusters — coordinator accepts all incoming messages regardless)
+     */
+    uint8_t payload[] = {
+        ep,
+        0x04, 0x01,   /* profile = 0x0104 (Home Automation) */
+        0x05, 0x00,   /* device  = 0x0005 (Configuration Tool) */
+        0x00,         /* device version */
+        0x00,         /* latency */
+        0x00,         /* num in clusters */
+        0x00,         /* num out clusters */
+    };
+    znp_frame_t resp;
+    esp_err_t err = send_sreq(ZNP_SUBSYS_AF, AF_REGISTER_CMD,
+                               ZNP_FRAME_TYPE_SREQ, payload, sizeof(payload), &resp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "AF_REGISTER failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    if (resp.payload[0] != 0x00) {
+        ESP_LOGE(TAG, "AF_REGISTER status=0x%02x", resp.payload[0]);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "AF endpoint %d registered", ep);
+    return ESP_OK;
+}
+
 esp_err_t zb_net_startup_and_wait(uint32_t timeout_ms)
 {
     /* ZDO_STARTUP_FROM_APP SREQ: payload = start delay (2 bytes, typically 0) */
