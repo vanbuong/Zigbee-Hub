@@ -43,8 +43,6 @@ typedef struct {
     } value;
 } zb_cap_event_t;
 
-typedef void (*zb_cap_event_cb_t)(const zb_cap_event_t *event, void *ctx);
-
 /* ---- Cluster schema entry ---- */
 
 typedef esp_err_t (*zb_cap_set_fn)(uint64_t ieee, zb_cap_id_t cap,
@@ -66,13 +64,6 @@ esp_err_t zb_cap_init(void);
 
 esp_err_t zb_schema_register(const zb_cluster_schema_t *schema);
 const zb_cluster_schema_t *zb_schema_find(uint16_t cluster_id);
-
-/* ---- Subscription ---- */
-
-esp_err_t zb_cap_subscribe(uint64_t ieee, zb_cap_id_t cap,
-                            zb_cap_event_cb_t cb, void *ctx);
-esp_err_t zb_cap_unsubscribe(uint64_t ieee, zb_cap_id_t cap,
-                              zb_cap_event_cb_t cb);
 
 /* ---- Generic set / get (dispatches through schema table) ---- */
 

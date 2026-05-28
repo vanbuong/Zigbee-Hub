@@ -8,10 +8,7 @@
 #include "driver/uart.h"
 
 #include "zb_framework.h"
-#include "zb_types.h"
-#include "zb_cap.h"
-#include "zb_device_mgr.h"
-#include "zb_subscribe.h"
+#include "zb_subscribe.h"   /* includes zb_cap.h for ZCL_CLUSTER_* constants */
 #include "zb_cmd.h"
 
 static const char *TAG = "main";
@@ -42,34 +39,35 @@ static void on_network_event(const zb_event_t *e, void *ctx)
     }
 }
 
-/* Capability event callback — upper layer sees no raw ZCL details */
-static void on_cap_event(const zb_cap_event_t *e, void *ctx)
+/* Capability event callback — accesses e->data.cap; no raw ZCL details needed */
+static void on_cap_event(const zb_event_t *e, void *ctx)
 {
-    uint16_t cluster = ZB_CAP_CLUSTER(e->cap_id);
+    const zb_cap_event_t *cap = &e->data.cap;
+    uint16_t cluster = ZB_CAP_CLUSTER(cap->cap_id);
     switch (cluster) {
     case ZCL_CLUSTER_ONOFF:
         ESP_LOGI(TAG, "[cap] %016llx OnOff=%s",
-                 (unsigned long long)e->ieee_addr,
-                 e->value.on_off ? "ON" : "OFF");
+                 (unsigned long long)cap->ieee_addr,
+                 cap->value.on_off ? "ON" : "OFF");
         break;
     case ZCL_CLUSTER_LEVEL:
         ESP_LOGI(TAG, "[cap] %016llx Level=%d",
-                 (unsigned long long)e->ieee_addr, e->value.level);
+                 (unsigned long long)cap->ieee_addr, cap->value.level);
         break;
     case ZCL_CLUSTER_TEMPERATURE:
         ESP_LOGI(TAG, "[cap] %016llx Temp=%.2f C",
-                 (unsigned long long)e->ieee_addr,
-                 e->value.temperature_hundredths / 100.0f);
+                 (unsigned long long)cap->ieee_addr,
+                 cap->value.temperature_hundredths / 100.0f);
         break;
     case ZCL_CLUSTER_HUMIDITY:
         ESP_LOGI(TAG, "[cap] %016llx Humidity=%.2f%%",
-                 (unsigned long long)e->ieee_addr,
-                 e->value.humidity_hundredths / 100.0f);
+                 (unsigned long long)cap->ieee_addr,
+                 cap->value.humidity_hundredths / 100.0f);
         break;
     default:
         ESP_LOGI(TAG, "[cap] %016llx cluster=0x%04x attr=0x%04x",
-                 (unsigned long long)e->ieee_addr,
-                 cluster, e->value.raw.attr_id);
+                 (unsigned long long)cap->ieee_addr,
+                 cluster, cap->value.raw.attr_id);
         break;
     }
 }
@@ -135,10 +133,9 @@ void app_main(void)
     zb_subscribe(ZB_EVENT_DEVICE_JOINED, on_network_event, NULL);
     zb_subscribe(ZB_EVENT_DEVICE_LEFT,   on_network_event, NULL);
 
-    /* Subscribe to capability events for a known device.
-     * Replace DEMO_IEEE with the actual IEEE address of a joined device. */
-    static const uint64_t DEMO_IEEE = 0x00124B001234ABCDULL;
-    zb_cap_subscribe(DEMO_IEEE, ZB_CAP_ANY, on_cap_event, NULL);
+    /* Subscribe to all capability reports via the unified event bus.
+     * Filter by ieee_addr / cap_id inside on_cap_event if needed. */
+    zb_subscribe(ZB_EVENT_CAP_REPORT, on_cap_event, NULL);
 
     /* Keep app_main alive; the framework task handles everything from here */
     for (;;) {
