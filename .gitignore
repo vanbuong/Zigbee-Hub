@@ -1,0 +1,27 @@
+# ESP-IDF build output
+build/
+sdkconfig
+sdkconfig.old
+
+# IDF Component Manager — downloaded managed components
+managed_components/
+dependencies.lock
+
+# VS Code
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Flash artifacts
+*.bin
+*.elf
+*.map
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
