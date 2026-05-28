@@ -1,0 +1,70 @@
+menu "Zigbee Button (FR-10)"
+
+    config ZB_BUTTON_GPIO
+        int "Button GPIO number"
+        default 34
+        range 0 48
+        help
+            ESP32 GPIO connected to the momentary push-button.
+            GPIO34 is an input-only pin on ESP32; an external pull-up to 3.3 V
+            is required on the PCB.
+
+    config ZB_BUTTON_ACTIVE_LOW
+        bool "Button active-low (pressed = LOW)"
+        default y
+        help
+            Set y when the button shorts the GPIO to GND when pressed (external
+            pull-up present).  Set n for active-high with an external pull-down.
+
+    config ZB_BUTTON_DEBOUNCE_MS
+        int "Debounce stable window (ms)"
+        default 20
+        range 5 100
+        help
+            The GPIO level must be stable for this many milliseconds before
+            a press or release is accepted (FR-10.2).
+
+    config ZB_BUTTON_LONG_PRESS_MS
+        int "Long-press threshold (ms)"
+        default 1500
+        range 500 10000
+        help
+            Hold time that triggers a ZB_BTN_LONG event, emitted once while
+            the button is still held (FR-10.3).
+
+    config ZB_BUTTON_MULTI_PRESS_TIMEOUT_MS
+        int "Multi-press inter-press timeout (ms)"
+        default 400
+        range 100 1000
+        help
+            Maximum gap between consecutive presses in a multi-press gesture.
+            A ZB_BTN_SINGLE event is emitted when this timeout expires after
+            the first press without a second press (FR-10.3).
+
+    config ZB_BUTTON_POLL_INTERVAL_MS
+        int "Button polling interval (ms)"
+        default 10
+        range 5 50
+        help
+            Period of the button task polling loop (FR-10.8).
+
+    config ZB_BUTTON_PERMIT_JOIN_SECONDS
+        int "Permit-join duration on single press (seconds)"
+        default 60
+        range 0 254
+        help
+            Duration passed to zb_cmd_permit_join() when a single press is
+            detected and the framework is in READY state (FR-10.6).
+            0 = close join window, 254 = open indefinitely.
+
+    config ZB_BUTTON_TASK_STACK
+        int "Button task stack size (bytes)"
+        default 2048
+        range 1024 8192
+
+    config ZB_BUTTON_TASK_PRIORITY
+        int "Button task FreeRTOS priority"
+        default 3
+        range 1 24
+
+endmenu

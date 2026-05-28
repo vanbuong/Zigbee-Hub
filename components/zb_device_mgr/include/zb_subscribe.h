@@ -4,6 +4,17 @@
 #include "esp_err.h"
 #include "zb_cap.h"   /* for zb_cap_event_t */
 
+/* ---- Button event kinds (FR-10.3, FR-10.4) ---- */
+
+typedef enum {
+    ZB_BTN_SINGLE = 0,   /* one press-release; emitted after multi-press timeout */
+    ZB_BTN_DOUBLE,       /* two presses within multi-press timeout */
+    ZB_BTN_LONG,         /* hold exceeds long-press threshold; emitted while held */
+    ZB_BTN_TRIPLE,       /* reserved — future use */
+    ZB_BTN_QUAD,         /* reserved — future use */
+    ZB_BTN_VERY_LONG,    /* reserved — future use */
+} zb_button_event_kind_t;
+
 typedef enum {
     ZB_EVENT_NETWORK_READY = 0,  /* coordinator started, network operational */
     ZB_EVENT_NETWORK_LOST,       /* coordinator reset or network lost */
@@ -11,6 +22,7 @@ typedef enum {
     ZB_EVENT_DEVICE_LEFT,        /* a device left the network */
     ZB_EVENT_CAP_REPORT,         /* ZCL attribute report → typed cap event */
     ZB_EVENT_ZNP_ERROR,          /* ZNP communication failure */
+    ZB_EVENT_BUTTON,             /* physical button press (FR-10.5) */
     ZB_EVENT_TYPE_MAX,
 } zb_event_type_t;
 
@@ -25,6 +37,9 @@ typedef struct {
         struct {
             int code;
         } error;
+        struct {
+            zb_button_event_kind_t event;  /* FR-10.5: e->data.button.event */
+        } button;
     } data;
 } zb_event_t;
 

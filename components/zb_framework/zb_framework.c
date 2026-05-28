@@ -5,6 +5,7 @@
 #include "zb_device_mgr.h"
 #include "zb_subscribe.h"
 #include "zb_cmd.h"
+#include "zb_button.h"
 #include "znp_transport.h"
 #include "znp_mt_protocol.h"
 #include "znp_types.h"
@@ -297,6 +298,16 @@ static void framework_task(void *arg)
     }
 }
 
+/* ---- Default button handler (FR-10.6) ---- */
+
+static void default_button_handler(const zb_event_t *e, void *ctx)
+{
+    (void)ctx;
+    if (e->data.button.event == ZB_BTN_SINGLE && s_state == ZB_STATE_READY) {
+        zb_cmd_permit_join(CONFIG_ZB_BUTTON_PERMIT_JOIN_SECONDS);
+    }
+}
+
 /* ---- Public API ---- */
 
 esp_err_t zb_framework_init(const zb_config_t *cfg)
@@ -334,6 +345,13 @@ esp_err_t zb_framework_init(const zb_config_t *cfg)
         return dm_err;
     }
 
+    /* Initialize button GPIO */
+    esp_err_t btn_err = zb_button_init();
+    if (btn_err != ESP_OK) {
+        ESP_LOGW(TAG, "button init failed: %s — button events disabled",
+                 esp_err_to_name(btn_err));
+    }
+
     /* Initialize ZNP transport */
     znp_transport_config_t transport_cfg = {
         .uart_port        = cfg->uart_port,
@@ -364,6 +382,14 @@ esp_err_t zb_framework_start(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Start button polling task and register default single-press → permit-join handler */
+    esp_err_t btn_err = zb_button_start();
+    if (btn_err != ESP_OK) {
+        ESP_LOGW(TAG, "button task start failed: %s", esp_err_to_name(btn_err));
+    } else {
+        zb_subscribe(ZB_EVENT_BUTTON, default_button_handler, NULL);
     }
 
     BaseType_t ret = xTaskCreate(framework_task, "zb_framework",
