@@ -1,0 +1,14 @@
+idf_component_register(
+    SRCS
+        "zb_framework.c"
+        "zb_network.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        znp_transport
+        zb_storage
+        freertos
+        esp_common
+        log
+        app_update
+)

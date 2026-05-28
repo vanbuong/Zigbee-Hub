@@ -1,0 +1,28 @@
+menu "Zigbee Framework"
+
+    config ZB_DEFAULT_PAN_ID
+        hex "Default PAN ID"
+        default 0x1A2B
+        help
+            16-bit Zigbee PAN ID used when none is stored in NVS.
+            Override at runtime via zb_config_t.pan_id.
+
+    config ZB_DEFAULT_CHANNEL
+        int "Default Zigbee channel"
+        default 15
+        range 11 26
+        help
+            Zigbee 2.4 GHz channel used when none is stored in NVS.
+            Channel 15 avoids overlap with common Wi-Fi channels.
+
+    config ZB_FRAMEWORK_TASK_STACK
+        int "Framework task stack size (bytes)"
+        default 8192
+        range 4096 32768
+
+    config ZB_FRAMEWORK_TASK_PRIORITY
+        int "Framework task FreeRTOS priority"
+        default 5
+        range 1 24
+
+endmenu
