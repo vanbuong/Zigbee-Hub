@@ -5,43 +5,44 @@
 #include "esp_err.h"
 #include "znp_types.h"
 
-/* ---- MT Subsystem IDs (high byte of cmd_type after masking frame type) ---- */
-#define ZNP_SUBSYS_SYS      0x21
-#define ZNP_SUBSYS_MAC      0x22
-#define ZNP_SUBSYS_NWK      0x23
-#define ZNP_SUBSYS_AF       0x24
-#define ZNP_SUBSYS_ZDO      0x25
-#define ZNP_SUBSYS_APP_CNF  0x26
-#define ZNP_SUBSYS_SAPI     0x2C
-#define ZNP_SUBSYS_UTIL     0x27
-#define ZNP_SUBSYS_DEBUG    0x28
-#define ZNP_SUBSYS_APP      0x29
-#define ZNP_SUBSYS_ZNP      0x0F
+/*  Each subsystem constant is the cmd_type byte pre-OR'd with the SREQ frame
+ *  type (0x20). ZNP_CMD_TYPE() re-applies the frame-type bits, so callers can
+ *  pass these directly. The low 5 bits hold the actual MT subsystem ID. */
+#define ZNP_SUBSYS_SYS      0x21    /* subsystem 0x01 */
+#define ZNP_SUBSYS_MAC      0x22    /* subsystem 0x02 */
+#define ZNP_SUBSYS_NWK      0x23    /* subsystem 0x03 */
+#define ZNP_SUBSYS_AF       0x24    /* subsystem 0x04 */
+#define ZNP_SUBSYS_ZDO      0x25    /* subsystem 0x05 */
+#define ZNP_SUBSYS_SAPI     0x26    /* subsystem 0x06 */
+#define ZNP_SUBSYS_UTIL     0x27    /* subsystem 0x07 */
+#define ZNP_SUBSYS_DEBUG    0x28    /* subsystem 0x08 */
+#define ZNP_SUBSYS_APP      0x29    /* subsystem 0x09 */
+#define ZNP_SUBSYS_APP_CNF  0x2F    /* subsystem 0x0F */
 
 /* Helper: build cmd_type byte from subsystem and frame type */
 #define ZNP_CMD_TYPE(subsys, ftype)  (((subsys) & 0x1F) | (ftype))
 
 /* ---- SYS subsystem command IDs ---- */
-#define SYS_RESET_REQ_CMD   0x09    /* SREQ: soft-reset coprocessor */
+#define SYS_RESET_REQ_CMD   0x00    /* SREQ: soft-reset coprocessor */
 #define SYS_PING_CMD        0x01    /* SREQ/SRSP */
 #define SYS_VERSION_CMD     0x02    /* SREQ/SRSP */
-#define SYS_RESET_IND_CMD   0x41    /* AREQ: reset indication */
+#define SYS_RESET_IND_CMD   0x80    /* AREQ: reset indication */
 #define SYS_OSAL_NV_READ_CMD    0x08  /* SREQ/SRSP: read Z-Stack NV item */
 #define SYS_OSAL_NV_WRITE_CMD   0x09  /* SREQ/SRSP: write Z-Stack NV item */
 #define SYS_OSAL_NV_DELETE_CMD  0x12  /* SREQ/SRSP: delete Z-Stack NV item */
 
-/* ---- ZDO subsystem command IDs ---- */
-#define ZDO_STARTUP_FROM_APP_CMD    0x00    /* SREQ/SRSP: start coordinator */
-#define ZDO_STATE_CHANGE_IND_CMD    0xC0    /* AREQ: network state change */
-#define ZDO_TC_DEV_IND_CMD          0xCA    /* AREQ: device joined (trust centre) */
-#define ZDO_LEAVE_IND_CMD           0xC9    /* AREQ: device left */
-#define ZDO_END_DEVICE_ANNCE_IND_CMD 0xC1   /* AREQ: end device announce */
-#define ZDO_MGMT_PERMIT_JOIN_CMD    0x36    /* SREQ: permit join */
-#define ZDO_MGMT_PERMIT_JOIN_RSP_CMD 0xB6   /* AREQ: permit join response */
-#define ZDO_ACTIVE_EP_REQ_CMD       0x05    /* SREQ: request active endpoints */
-#define ZDO_ACTIVE_EP_RSP_CMD       0x85    /* AREQ: active endpoint response */
+/* ---- ZDO subsystem command IDs (cmd_id byte; frame type lives in cmd_type) ---- */
 #define ZDO_SIMPLE_DESC_REQ_CMD     0x04    /* SREQ: request simple descriptor */
+#define ZDO_ACTIVE_EP_REQ_CMD       0x05    /* SREQ: request active endpoints */
+#define ZDO_MGMT_PERMIT_JOIN_CMD    0x36    /* SREQ: permit join */
+#define ZDO_STARTUP_FROM_APP_CMD    0x40    /* SREQ/SRSP: start coordinator */
 #define ZDO_SIMPLE_DESC_RSP_CMD     0x84    /* AREQ: simple descriptor response */
+#define ZDO_ACTIVE_EP_RSP_CMD       0x85    /* AREQ: active endpoint response */
+#define ZDO_MGMT_PERMIT_JOIN_RSP_CMD 0xB6   /* AREQ: permit join response */
+#define ZDO_STATE_CHANGE_IND_CMD    0xC0    /* AREQ: network state change */
+#define ZDO_END_DEVICE_ANNCE_IND_CMD 0xC1   /* AREQ: end device announce */
+#define ZDO_LEAVE_IND_CMD           0xC9    /* AREQ: device left */
+#define ZDO_TC_DEV_IND_CMD          0xCA    /* AREQ: device joined (trust centre) */
 
 /* ---- AF subsystem command IDs ---- */
 #define AF_REGISTER_CMD             0x00    /* SREQ/SRSP: register endpoint */
@@ -49,7 +50,8 @@
 #define AF_INCOMING_MSG_CMD         0x81    /* AREQ: incoming AF message */
 
 /* ---- APP_CNF subsystem command IDs ---- */
-#define APP_CNF_BDB_START_CMD       0x00    /* SREQ: BDB commissioning start */
+#define APP_CNF_BDB_START_CMD       0x05    /* SREQ: BDB commissioning start */
+#define APP_CNF_BDB_SET_CHANNEL_CMD 0x08    /* SREQ: BDB set channel */
 
 /* ---- ZCD NV item IDs (Z-Stack NV) ---- */
 #define ZCD_NV_STARTUP_OPTION   0x0003
