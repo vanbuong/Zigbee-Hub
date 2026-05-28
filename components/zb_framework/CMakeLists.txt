@@ -8,6 +8,7 @@ idf_component_register(
         znp_transport
         zb_storage
         zb_device_mgr
+        zb_cmd
         freertos
         esp_common
         log

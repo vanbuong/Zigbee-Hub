@@ -14,6 +14,12 @@
 esp_err_t zb_net_ping(void);
 
 /**
+ * Open or close the network for joining via ZDO_MGMT_PERMIT_JOIN_REQ (broadcast).
+ * @param duration_s  0 = close, 0xFF = open indefinitely, 1-254 = seconds.
+ */
+esp_err_t zb_net_permit_join(uint8_t duration_s);
+
+/**
  * Register an AF endpoint on the coordinator (AF_REGISTER SREQ).
  * Must be called during ZNP_INIT so the coordinator can receive
  * AF_INCOMING_MSG AREQs from joined devices.

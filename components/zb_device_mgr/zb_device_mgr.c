@@ -1,6 +1,7 @@
 #include "zb_device_mgr.h"
 #include "zb_cap.h"
 #include "zb_storage.h"
+#include "zb_subscribe.h"
 #include "znp_transport.h"
 #include "znp_mt_protocol.h"
 #include "znp_types.h"
@@ -19,6 +20,39 @@ static SemaphoreHandle_t s_mutex;
 
 /* ---- ZCL attribute report command ---- */
 #define ZCL_CMD_REPORT_ATTRIBUTES   0x0A
+
+/* ---- Internal: declare zb_subscribe_init ---- */
+void zb_subscribe_init(void);
+
+/* ---- Internal: ZDO discovery helpers ---- */
+
+static esp_err_t send_zdo_active_ep_req(uint16_t nwk_addr)
+{
+    uint8_t p[4] = { nwk_addr & 0xFF, nwk_addr >> 8,
+                     nwk_addr & 0xFF, nwk_addr >> 8 };
+    znp_frame_t req = {
+        .cmd_type    = ZNP_CMD_TYPE(ZNP_SUBSYS_ZDO, ZNP_FRAME_TYPE_SREQ),
+        .cmd_id      = ZDO_ACTIVE_EP_REQ_CMD,
+        .payload_len = 4,
+    };
+    memcpy(req.payload, p, 4);
+    znp_frame_t resp;
+    return znp_transport_send_sreq(&req, &resp);
+}
+
+static esp_err_t send_zdo_simple_desc_req(uint16_t nwk_addr, uint8_t ep)
+{
+    uint8_t p[5] = { nwk_addr & 0xFF, nwk_addr >> 8,
+                     nwk_addr & 0xFF, nwk_addr >> 8, ep };
+    znp_frame_t req = {
+        .cmd_type    = ZNP_CMD_TYPE(ZNP_SUBSYS_ZDO, ZNP_FRAME_TYPE_SREQ),
+        .cmd_id      = ZDO_SIMPLE_DESC_REQ_CMD,
+        .payload_len = 5,
+    };
+    memcpy(req.payload, p, 5);
+    znp_frame_t resp;
+    return znp_transport_send_sreq(&req, &resp);
+}
 
 /* ---- Helpers ---- */
 
@@ -88,7 +122,10 @@ esp_err_t zb_dev_mgr_init(void)
 
     memset(s_devices, 0, sizeof(s_devices));
 
-    /* Init cap layer (schemas) */
+    /* Init event bus */
+    zb_subscribe_init();
+
+    /* Init cap layer (schemas + notify task) */
     esp_err_t err = zb_cap_init();
     if (err != ESP_OK) return err;
 
@@ -127,6 +164,17 @@ esp_err_t zb_dev_mgr_join(uint64_t ieee_addr, uint16_t nwk_addr)
 
     ESP_LOGI(TAG, "device joined: %016llx nwk=0x%04x",
              (unsigned long long)ieee_addr, nwk_addr);
+
+    /* Emit DEVICE_JOINED event to subscribers */
+    zb_event_t ev = {
+        .type = ZB_EVENT_DEVICE_JOINED,
+        .data.device = { .ieee_addr = ieee_addr, .nwk_addr = nwk_addr },
+    };
+    zb_event_emit(&ev);
+
+    /* Trigger ZDO endpoint discovery (SREQ only — response arrives as AREQ later) */
+    send_zdo_active_ep_req(nwk_addr);
+
     return ESP_OK;
 }
 
@@ -141,6 +189,12 @@ void zb_dev_mgr_leave(uint64_t ieee_addr)
 
     zb_storage_device_delete(ieee_addr);
     ESP_LOGI(TAG, "device left: %016llx", (unsigned long long)ieee_addr);
+
+    zb_event_t ev = {
+        .type = ZB_EVENT_DEVICE_LEFT,
+        .data.device = { .ieee_addr = ieee_addr, .nwk_addr = 0xFFFF },
+    };
+    zb_event_emit(&ev);
 }
 
 const zb_dev_t *zb_dev_mgr_get(uint64_t ieee_addr)
@@ -340,6 +394,74 @@ static void parse_af_incoming(const znp_frame_t *areq)
     }
 }
 
+/* ---- ZDO discovery response parsers ---- */
+
+static void parse_active_ep_rsp(const znp_frame_t *areq)
+{
+    /* ZDO_ACTIVE_EP_RSP: srcAddr[2], status[1], nwkAddr[2], epCnt[1], eps[n] */
+    if (areq->payload_len < 6) return;
+    if (areq->payload[2] != 0x00) return;   /* status != success */
+
+    uint16_t nwk   = (uint16_t)(areq->payload[3] | (areq->payload[4] << 8));
+    uint8_t  cnt   = areq->payload[5];
+    const uint8_t *eps = &areq->payload[6];
+
+    if (areq->payload_len < (uint8_t)(6 + cnt)) return;
+
+    ESP_LOGD(TAG, "active EP rsp nwk=0x%04x cnt=%d", nwk, cnt);
+    for (uint8_t i = 0; i < cnt; i++) {
+        send_zdo_simple_desc_req(nwk, eps[i]);
+    }
+}
+
+static void parse_simple_desc_rsp(const znp_frame_t *areq)
+{
+    /*
+     * ZDO_SIMPLE_DESC_RSP: srcAddr[2], status[1], nwkAddr[2], descLen[1],
+     * ep[1], profileId[2], deviceId[2], deviceVer[1],
+     * numInClusters[1], inClusters[2*n], numOutClusters[1], outClusters[2*m]
+     */
+    if (areq->payload_len < 12 || areq->payload[2] != 0x00) return;
+
+    uint16_t nwk = (uint16_t)(areq->payload[3] | (areq->payload[4] << 8));
+    uint8_t  ep  = areq->payload[6];
+
+    /* Lookup device */
+    zb_dev_t *dev = find_by_nwk(nwk);
+    if (!dev) return;
+    uint64_t ieee = dev->ieee_addr;
+
+    uint8_t num_in = areq->payload[11];
+    const uint8_t *in_c = &areq->payload[12];
+
+    /* Register in-clusters as caps */
+    for (uint8_t i = 0; i < num_in; i++) {
+        if (12 + i * 2 + 1 >= areq->payload_len) break;
+        uint16_t cluster = (uint16_t)(in_c[i*2] | (in_c[i*2+1] << 8));
+        zb_dev_mgr_learn_cap(ieee, ZB_CAP_ID(ep, cluster));
+    }
+
+    /* Also check out-clusters if present */
+    uint8_t in_end = 12 + num_in * 2;
+    if (in_end < areq->payload_len) {
+        uint8_t num_out = areq->payload[in_end];
+        const uint8_t *out_c = &areq->payload[in_end + 1];
+        for (uint8_t i = 0; i < num_out; i++) {
+            if (in_end + 1 + i * 2 + 1 >= areq->payload_len) break;
+            uint16_t cluster = (uint16_t)(out_c[i*2] | (out_c[i*2+1] << 8));
+            zb_dev_mgr_learn_cap(ieee, ZB_CAP_ID(ep, cluster));
+        }
+    }
+
+    /* Persist updated caps */
+    ZbDeviceRecord pb = ZbDeviceRecord_init_zero;
+    pb.ieee_addr    = ieee;
+    pb.network_addr = nwk;
+    zb_storage_device_save(&pb);
+
+    ESP_LOGD(TAG, "simple_desc nwk=0x%04x ep=%d: %d in-clusters", nwk, ep, num_in);
+}
+
 void zb_dev_mgr_on_areq(const znp_frame_t *areq)
 {
     uint8_t subsys = areq->cmd_type & 0x1F;
@@ -354,6 +476,12 @@ void zb_dev_mgr_on_areq(const znp_frame_t *areq)
             break;
         case ZDO_LEAVE_IND_CMD:
             parse_leave_ind(areq);
+            break;
+        case ZDO_ACTIVE_EP_RSP_CMD:
+            parse_active_ep_rsp(areq);
+            break;
+        case ZDO_SIMPLE_DESC_RSP_CMD:
+            parse_simple_desc_rsp(areq);
             break;
         default:
             break;

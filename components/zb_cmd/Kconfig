@@ -1,0 +1,11 @@
+menu "Zigbee Command Queue"
+
+    config ZB_CMD_QUEUE_DEPTH
+        int "Command queue depth"
+        default 16
+        range 4 64
+        help
+            Number of commands that can be buffered while the framework is
+            not in READY state (e.g. during FORMING or RECONFIGURING).
+
+endmenu

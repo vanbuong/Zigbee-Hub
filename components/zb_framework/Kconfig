@@ -25,4 +25,12 @@ menu "Zigbee Framework"
         default 5
         range 1 24
 
+    config ZB_NOTIFY_TASK_STACK
+        int "Notify task stack size (bytes)"
+        default 4096
+        range 2048 16384
+        help
+            Stack size for the zb_notify_task that delivers zb_cap_event_t
+            callbacks to upper-layer subscribers (FR-5.8).
+
 endmenu

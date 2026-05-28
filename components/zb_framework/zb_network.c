@@ -215,6 +215,30 @@ esp_err_t zb_net_form_network(uint16_t pan_id, uint8_t channel,
     return ESP_OK;
 }
 
+esp_err_t zb_net_permit_join(uint8_t duration_s)
+{
+    /* ZDO_MGMT_PERMIT_JOIN_REQ: addrMode[1], dstAddr[2], duration[1], tcSignificance[1] */
+    uint8_t payload[5] = {
+        0x0F,          /* broadcast address mode */
+        0xFC, 0xFF,    /* 0xFFFC = all routers + coordinator */
+        duration_s,
+        0x01,          /* TC significance */
+    };
+    znp_frame_t resp;
+    esp_err_t err = send_sreq(ZNP_SUBSYS_ZDO, ZDO_MGMT_PERMIT_JOIN_CMD,
+                               ZNP_FRAME_TYPE_SREQ, payload, sizeof(payload), &resp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "permit_join failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    if (resp.payload[0] != 0x00) {
+        ESP_LOGE(TAG, "permit_join status=0x%02x", resp.payload[0]);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "permit_join: %d s", duration_s);
+    return ESP_OK;
+}
+
 esp_err_t zb_net_af_register(uint8_t ep)
 {
     /*

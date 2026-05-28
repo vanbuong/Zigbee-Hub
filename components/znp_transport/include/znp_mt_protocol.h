@@ -38,6 +38,10 @@
 #define ZDO_END_DEVICE_ANNCE_IND_CMD 0xC1   /* AREQ: end device announce */
 #define ZDO_MGMT_PERMIT_JOIN_CMD    0x36    /* SREQ: permit join */
 #define ZDO_MGMT_PERMIT_JOIN_RSP_CMD 0xB6   /* AREQ: permit join response */
+#define ZDO_ACTIVE_EP_REQ_CMD       0x05    /* SREQ: request active endpoints */
+#define ZDO_ACTIVE_EP_RSP_CMD       0x85    /* AREQ: active endpoint response */
+#define ZDO_SIMPLE_DESC_REQ_CMD     0x04    /* SREQ: request simple descriptor */
+#define ZDO_SIMPLE_DESC_RSP_CMD     0x84    /* AREQ: simple descriptor response */
 
 /* ---- AF subsystem command IDs ---- */
 #define AF_REGISTER_CMD             0x00    /* SREQ/SRSP: register endpoint */

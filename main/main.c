@@ -11,8 +11,36 @@
 #include "zb_types.h"
 #include "zb_cap.h"
 #include "zb_device_mgr.h"
+#include "zb_subscribe.h"
+#include "zb_cmd.h"
 
 static const char *TAG = "main";
+
+/* Network-level event callback */
+static void on_network_event(const zb_event_t *e, void *ctx)
+{
+    switch (e->type) {
+    case ZB_EVENT_NETWORK_READY:
+        ESP_LOGI(TAG, "[net] NETWORK_READY");
+        /* Open for joining now that we're confirmed READY */
+        zb_cmd_permit_join(60);
+        break;
+    case ZB_EVENT_NETWORK_LOST:
+        ESP_LOGW(TAG, "[net] NETWORK_LOST");
+        break;
+    case ZB_EVENT_DEVICE_JOINED:
+        ESP_LOGI(TAG, "[net] DEVICE_JOINED %016llx nwk=0x%04x",
+                 (unsigned long long)e->data.device.ieee_addr,
+                 e->data.device.nwk_addr);
+        break;
+    case ZB_EVENT_DEVICE_LEFT:
+        ESP_LOGI(TAG, "[net] DEVICE_LEFT %016llx",
+                 (unsigned long long)e->data.device.ieee_addr);
+        break;
+    default:
+        break;
+    }
+}
 
 /* Capability event callback — upper layer sees no raw ZCL details */
 static void on_cap_event(const zb_cap_event_t *e, void *ctx)
@@ -101,11 +129,15 @@ void app_main(void)
 
     ESP_LOGI(TAG, "init complete — hub running");
 
-    /* ---- Capability API demonstration ---- */
+    /* Subscribe to network-level events (permit-join opens automatically on READY) */
+    zb_subscribe(ZB_EVENT_NETWORK_READY, on_network_event, NULL);
+    zb_subscribe(ZB_EVENT_NETWORK_LOST,  on_network_event, NULL);
+    zb_subscribe(ZB_EVENT_DEVICE_JOINED, on_network_event, NULL);
+    zb_subscribe(ZB_EVENT_DEVICE_LEFT,   on_network_event, NULL);
 
-    /* Example: subscribe to ALL events from any device using cap abstraction.
-     * Upper-layer code never sees raw ZCL cluster IDs or endpoint numbers. */
-    static const uint64_t DEMO_IEEE = 0x00124B001234ABCDULL; /* replace with real device */
+    /* Subscribe to capability events for a known device.
+     * Replace DEMO_IEEE with the actual IEEE address of a joined device. */
+    static const uint64_t DEMO_IEEE = 0x00124B001234ABCDULL;
     zb_cap_subscribe(DEMO_IEEE, ZB_CAP_ANY, on_cap_event, NULL);
 
     /* Keep app_main alive; the framework task handles everything from here */

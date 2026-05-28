@@ -6,6 +6,7 @@ idf_component_register(
     REQUIRES
         zb_framework
         zb_device_mgr
+        zb_cmd
         nvs_flash
         log
 )

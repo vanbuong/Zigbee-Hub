@@ -3,6 +3,7 @@ idf_component_register(
         "zb_cap.c"
         "zb_cap_clusters.c"
         "zb_device_mgr.c"
+        "zb_subscribe.c"
     INCLUDE_DIRS
         "include"
     REQUIRES

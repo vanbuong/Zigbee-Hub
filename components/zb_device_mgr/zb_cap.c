@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 
 static const char *TAG = "zb_cap";
 
@@ -35,8 +37,31 @@ typedef struct {
     void             *ctx;
 } sub_entry_t;
 
-static sub_entry_t     s_subs[MAX_SUBSCRIBERS];
+static sub_entry_t      s_subs[MAX_SUBSCRIBERS];
 static SemaphoreHandle_t s_sub_mutex;
+
+/* ---- Dedicated notify task (FR-5.8) ---- */
+
+#define NOTIFY_QUEUE_DEPTH  32
+
+static QueueHandle_t s_notify_queue;
+
+static void notify_task(void *arg)
+{
+    zb_cap_event_t evt;
+    for (;;) {
+        if (xQueueReceive(s_notify_queue, &evt, portMAX_DELAY) != pdTRUE) continue;
+
+        xSemaphoreTake(s_sub_mutex, portMAX_DELAY);
+        for (int i = 0; i < MAX_SUBSCRIBERS; i++) {
+            if (!s_subs[i].active) continue;
+            if (s_subs[i].ieee != evt.ieee_addr) continue;
+            if (s_subs[i].cap != ZB_CAP_ANY && s_subs[i].cap != evt.cap_id) continue;
+            s_subs[i].cb(&evt, s_subs[i].ctx);
+        }
+        xSemaphoreGive(s_sub_mutex);
+    }
+}
 
 /* ---- Helpers ---- */
 
@@ -110,10 +135,17 @@ static void translate_to_typed(uint16_t cluster, uint16_t attr_id,
 
 esp_err_t zb_cap_init(void)
 {
-    s_sub_mutex = xSemaphoreCreateMutex();
-    if (!s_sub_mutex) return ESP_ERR_NO_MEM;
+    s_sub_mutex   = xSemaphoreCreateMutex();
+    s_notify_queue = xQueueCreate(NOTIFY_QUEUE_DEPTH, sizeof(zb_cap_event_t));
+    if (!s_sub_mutex || !s_notify_queue) return ESP_ERR_NO_MEM;
 
     memset(s_subs, 0, sizeof(s_subs));
+
+    if (xTaskCreate(notify_task, "zb_notify",
+                    CONFIG_ZB_NOTIFY_TASK_STACK, NULL,
+                    CONFIG_ZB_FRAMEWORK_TASK_PRIORITY - 1, NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
 
     /* Register built-in cluster schemas */
     zb_schema_register(&zb_schema_onoff);
@@ -221,20 +253,15 @@ esp_err_t zb_cap_dispatch_attr(uint64_t ieee, uint8_t ep, uint16_t cluster,
     ESP_LOGD(TAG, "dispatch ieee=%016llx cap=0x%08"PRIx32" cluster=0x%04x attr=0x%04x",
              (unsigned long long)ieee, (uint32_t)cap, cluster, attr_id);
 
-    /* Notify matching subscribers */
-    xSemaphoreTake(s_sub_mutex, portMAX_DELAY);
-    for (int i = 0; i < MAX_SUBSCRIBERS; i++) {
-        if (!s_subs[i].active) continue;
-        if (s_subs[i].ieee != ieee) continue;
-        if (s_subs[i].cap != ZB_CAP_ANY && s_subs[i].cap != cap) continue;
-        s_subs[i].cb(&evt, s_subs[i].ctx);
-    }
-    xSemaphoreGive(s_sub_mutex);
-
-    /* Emit raw event for unknown clusters (FR-9.8) */
     if (zb_schema_find(cluster) == NULL) {
-        ESP_LOGD(TAG, "no schema for cluster 0x%04x — raw event only", cluster);
+        /* Unknown cluster — still deliver as raw (FR-9.8) */
+        ESP_LOGD(TAG, "no schema for cluster 0x%04x — raw event", cluster);
     }
 
+    /* Post to notify queue; delivery happens in dedicated notify_task (FR-5.8) */
+    if (xQueueSend(s_notify_queue, &evt, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "notify queue full — event dropped for cap 0x%08"PRIx32, (uint32_t)cap);
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }

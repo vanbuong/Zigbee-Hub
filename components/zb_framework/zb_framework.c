@@ -3,6 +3,8 @@
 #include "zb_types.h"
 #include "zb_storage.h"
 #include "zb_device_mgr.h"
+#include "zb_subscribe.h"
+#include "zb_cmd.h"
 #include "znp_transport.h"
 #include "znp_mt_protocol.h"
 #include "znp_types.h"
@@ -171,24 +173,58 @@ static esp_err_t handle_reconfiguring(uint16_t pan_id, uint8_t channel,
     return handle_forming(pan_id, channel, nwk_key);
 }
 
+/* Process one command from the queue; returns true if re-init is needed */
+static bool process_cmd(const zb_cmd_t *cmd)
+{
+    switch (cmd->type) {
+    case ZB_CMD_PERMIT_JOIN:
+        zb_net_permit_join(cmd->params.duration_s);
+        break;
+    case ZB_CMD_CHANGE_CHANNEL:
+        /* Save new channel to config.json; re-init will detect mismatch → RECONFIGURING */
+        {
+            zb_net_config_t cfg = {0};
+            zb_storage_config_load(&cfg);
+            cfg.channel = cmd->params.channel;
+            zb_storage_config_save(&cfg);
+        }
+        return true;  /* trigger re-init */
+    }
+    return false;
+}
+
 static void handle_ready(bool *should_reinit)
 {
     set_state(ZB_STATE_READY);
     ESP_LOGI(TAG, "network ready — coordinator operational");
 
+    /* Notify subscribers that network is ready */
+    zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_READY });
+
     znp_frame_t areq;
     for (;;) {
-        if (znp_transport_receive_areq(&areq, portMAX_DELAY) != pdTRUE) {
+        /* Drain command queue before blocking on next AREQ */
+        zb_cmd_t cmd;
+        while (zb_cmd_dequeue(&cmd, 0) == pdTRUE) {
+            if (process_cmd(&cmd)) {
+                zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_LOST });
+                *should_reinit = true;
+                return;
+            }
+        }
+
+        /* Wait for next AREQ (100 ms timeout so command queue is checked regularly) */
+        if (znp_transport_receive_areq(&areq, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
         }
 
         if (areq.cmd_id == SYS_RESET_IND_CMD) {
-            ESP_LOGW(TAG, "unexpected SYS_RESET_IND in READY state — re-initializing");
+            ESP_LOGW(TAG, "unexpected SYS_RESET_IND — re-initializing");
+            zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_LOST });
             *should_reinit = true;
             return;
         }
 
-        /* Dispatch all other AREQs to device manager (join, leave, attr reports) */
         zb_dev_mgr_on_areq(&areq);
     }
 }
@@ -282,6 +318,13 @@ esp_err_t zb_framework_init(const zb_config_t *cfg)
     if (storage_err != ESP_OK) {
         ESP_LOGE(TAG, "storage init failed: %s", esp_err_to_name(storage_err));
         return storage_err;
+    }
+
+    /* Initialize command queue */
+    esp_err_t cmd_err = zb_cmd_init();
+    if (cmd_err != ESP_OK) {
+        ESP_LOGE(TAG, "cmd queue init failed: %s", esp_err_to_name(cmd_err));
+        return cmd_err;
     }
 
     /* Initialize device manager (loads schemas + restores registry from LittleFS) */
