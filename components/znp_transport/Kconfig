@@ -9,9 +9,9 @@ menu "ZNP Transport"
 
     config ZNP_UART_BAUD
         int "UART baud rate"
-        default 115200
+        default 921600
         help
-            ZNP UART baud rate. Common values: 115200, 230400.
+            ZNP UART baud rate. Common values: 115200, 230400, 460800, 921600.
 
     config ZNP_GPIO_TX
         int "TX GPIO pin"

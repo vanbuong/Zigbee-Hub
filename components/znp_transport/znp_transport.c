@@ -11,6 +11,7 @@
 #include "freertos/queue.h"
 #include "driver/uart.h"
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 
 static const char *TAG = "znp_transport";
@@ -156,6 +157,7 @@ esp_err_t znp_transport_init(const znp_transport_config_t *cfg)
                                      cfg->gpio_tx, cfg->gpio_rx,
                                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE),
                         TAG, "uart_set_pin failed");
+    gpio_pullup_en(cfg->gpio_rx);  /* RX idles HIGH */
 
     /* PCA9538 — drives RESET (bit cfg->pca_reset_bit) and BSL (bit cfg->pca_bsl_bit).
      * Both idle HIGH (de-asserted). */
