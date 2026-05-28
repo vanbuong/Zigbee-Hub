@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "znp_mt_protocol.c"
+        "znp_transport.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        driver
+        freertos
+        esp_common
+        log
+)

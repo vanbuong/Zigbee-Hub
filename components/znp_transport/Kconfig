@@ -1,0 +1,73 @@
+menu "ZNP Transport"
+
+    config ZNP_UART_PORT
+        int "UART port number"
+        default 1
+        range 0 2
+        help
+            UART peripheral to use for CC2652P7 ZNP communication.
+
+    config ZNP_UART_BAUD
+        int "UART baud rate"
+        default 115200
+        help
+            ZNP UART baud rate. Common values: 115200, 230400.
+
+    config ZNP_GPIO_TX
+        int "TX GPIO pin"
+        default 17
+        help
+            ESP32 GPIO connected to CC2652P7 RX (ZNP data).
+
+    config ZNP_GPIO_RX
+        int "RX GPIO pin"
+        default 16
+        help
+            ESP32 GPIO connected to CC2652P7 TX (ZNP data).
+
+    config ZNP_GPIO_RESET
+        int "CC2652P7 RESET GPIO pin"
+        default 4
+        help
+            ESP32 GPIO connected to CC2652P7 RESET pin (active-low).
+
+    config ZNP_GPIO_BSL
+        int "CC2652P7 BSL invoke GPIO pin"
+        default 5
+        help
+            ESP32 GPIO connected to CC2652P7 BSL invoke pin.
+            Drive low before reset to enter bootloader mode.
+
+    config ZNP_SREQ_TIMEOUT_MS
+        int "SREQ response timeout (ms)"
+        default 3000
+        range 500 10000
+        help
+            How long to wait for an SRSP after sending an SREQ.
+
+    config ZNP_RESET_TIMEOUT_MS
+        int "Reset indication timeout (ms)"
+        default 3000
+        range 1000 10000
+        help
+            How long to wait for SYS_RESET_IND after asserting the RESET GPIO.
+
+    config ZNP_AREQ_QUEUE_DEPTH
+        int "AREQ queue depth (frames)"
+        default 32
+        range 8 128
+        help
+            Number of AREQ frames that can be buffered between the dispatch task
+            and the framework consumer.
+
+    config ZNP_RX_TASK_STACK
+        int "RX task stack size (bytes)"
+        default 4096
+        range 2048 16384
+
+    config ZNP_DISPATCH_TASK_STACK
+        int "Dispatch task stack size (bytes)"
+        default 3072
+        range 2048 8192
+
+endmenu

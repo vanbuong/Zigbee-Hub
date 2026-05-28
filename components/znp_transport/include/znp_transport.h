@@ -1,0 +1,54 @@
+#pragma once
+
+#include <stdint.h>
+#include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "driver/uart.h"
+#include "znp_types.h"
+
+typedef struct {
+    uart_port_t uart_port;      /* UART peripheral number */
+    int         baud_rate;      /* Baud rate (default 115200) */
+    int         gpio_tx;        /* ESP32 TX GPIO */
+    int         gpio_rx;        /* ESP32 RX GPIO */
+    int         gpio_reset;     /* CC2652P7 RESET GPIO (active-low) */
+    int         gpio_bsl;       /* CC2652P7 BSL invoke GPIO */
+    uint32_t    sreq_timeout_ms; /* SREQ→SRSP timeout in ms (default 3000) */
+    uint32_t    reset_timeout_ms;/* Wait for SYS_RESET_IND after reset (default 3000) */
+} znp_transport_config_t;
+
+/**
+ * Initialize the ZNP transport layer: UART driver, GPIOs, internal queues,
+ * and FreeRTOS tasks (znp_rx_task, znp_dispatch_task).
+ * Must be called once before any other znp_transport_* function.
+ */
+esp_err_t znp_transport_init(const znp_transport_config_t *cfg);
+
+/**
+ * Send a synchronous SREQ and wait for the matching SRSP.
+ * Thread-safe: internally serialized by a mutex — only one SREQ in flight at a time.
+ * @return ESP_OK on success.
+ *         ZNP_ERR_TIMEOUT if no SRSP received within sreq_timeout_ms.
+ */
+esp_err_t znp_transport_send_sreq(const znp_frame_t *req, znp_frame_t *resp);
+
+/**
+ * Hard-reset the CC2652P7 by asserting its RESET GPIO, then wait for a
+ * SYS_RESET_IND AREQ within reset_timeout_ms.
+ * @return ESP_OK on success, ZNP_ERR_RESET_TIMEOUT if no indication received.
+ */
+esp_err_t znp_transport_reset_coprocessor(void);
+
+/**
+ * Receive an AREQ frame from the transport's AREQ queue.
+ * @param out             Output frame buffer.
+ * @param ticks_to_wait   FreeRTOS tick count to block (use portMAX_DELAY to block forever).
+ * @return pdTRUE if a frame was received, pdFALSE on timeout.
+ */
+BaseType_t znp_transport_receive_areq(znp_frame_t *out, TickType_t ticks_to_wait);
+
+/**
+ * Return the cumulative error count (FCS errors + SREQ timeouts + UART overruns).
+ */
+uint32_t znp_transport_get_error_count(void);
