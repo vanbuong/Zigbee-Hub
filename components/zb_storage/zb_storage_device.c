@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include "esp_log.h"
@@ -85,7 +86,7 @@ esp_err_t zb_storage_device_load(uint64_t ieee_addr, ZbDeviceRecord *dev)
     size_t len = fread(pb_buf, 1, PB_BUF_SIZE, f);
     fclose(f);
 
-    *dev = ZbDeviceRecord_init_zero;
+    memset(dev, 0, sizeof(ZbDeviceRecord));
     pb_istream_t stream = pb_istream_from_buffer(pb_buf, len);
     bool ok = pb_decode(&stream, ZbDeviceRecord_fields, dev);
     free(pb_buf);

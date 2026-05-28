@@ -36,11 +36,4 @@ typedef struct {
     char cc26xx_fw[64];         /* Z-Stack version string from SYS_VERSION */
 } zb_versions_t;
 
-/* ---- Event types (stub — Device Manager in Phase 3) ---- */
-
-typedef enum {
-    ZB_EVENT_NETWORK_READY = 0,
-    ZB_EVENT_NETWORK_LOST,
-    ZB_EVENT_ZNP_ERROR,
-    /* Phase 3 additions: DEVICE_JOINED, DEVICE_LEFT, ATTR_REPORT, ... */
-} zb_event_type_t;
+/* Event types are defined in zb_subscribe.h (zb_device_mgr component) */

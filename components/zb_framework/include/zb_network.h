@@ -68,6 +68,6 @@ esp_err_t zb_net_startup_and_wait(uint32_t timeout_ms);
  * Read PAN ID and channel from CC2652P7 NV and check against desired values.
  * @return ESP_OK    if NV is empty (first boot).
  *         ESP_ERR_NOT_FOUND  if NV params differ from desired (needs reconfigure).
- *         ESP_ERR_ALREADY_EXISTS  if NV params match (can resume directly).
+ *         ESP_ERR_NOT_FINISHED  if NV params match (can resume directly).
  */
 esp_err_t zb_net_check_nv_state(uint16_t desired_pan_id, uint8_t desired_channel);

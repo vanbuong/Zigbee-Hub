@@ -159,7 +159,7 @@ esp_err_t zb_net_check_nv_state(uint16_t desired_pan_id, uint8_t desired_channel
              stored_pan_id, stored_channel, desired_pan_id, desired_channel);
 
     if (stored_pan_id == desired_pan_id && stored_channel == desired_channel) {
-        return ESP_ERR_ALREADY_EXISTS;  /* params match → can resume */
+        return ESP_ERR_NOT_FINISHED;  /* params match → can resume */
     }
     return ESP_ERR_NOT_FOUND;           /* mismatch → needs reconfiguring */
 }

@@ -3,5 +3,5 @@
 
 dependencies:
   joltwallet/littlefs: ">=1.14.8"
-  nanopb/nanopb: ">=0.4.7"
+  livekit/nanopb: ">=0.4.7"
   idf: ">=5.0.0"

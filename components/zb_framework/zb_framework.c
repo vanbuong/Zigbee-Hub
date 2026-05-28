@@ -127,7 +127,7 @@ static esp_err_t handle_network_check(uint16_t *pan_id_out, uint8_t *channel_out
     if (nv_status == ESP_OK) {
         /* NV empty → need to form */
         return ESP_ERR_NOT_FOUND;
-    } else if (nv_status == ESP_ERR_ALREADY_EXISTS) {
+    } else if (nv_status == ESP_ERR_NOT_FINISHED) {
         /* NV matches → resume */
         return ESP_OK;
     } else {

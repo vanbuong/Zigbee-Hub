@@ -9,7 +9,7 @@ typedef enum {
     ZB_EVENT_NETWORK_LOST,       /* coordinator reset or network lost */
     ZB_EVENT_DEVICE_JOINED,      /* a device joined the network */
     ZB_EVENT_DEVICE_LEFT,        /* a device left the network */
-    ZB_EVENT_CAP_REPORT,         /* ZCL attribute report translated to typed cap event */
+    ZB_EVENT_CAP_REPORT,         /* ZCL attribute report → typed cap event */
     ZB_EVENT_ZNP_ERROR,          /* ZNP communication failure */
     ZB_EVENT_TYPE_MAX,
 } zb_event_type_t;
