@@ -1,11 +1,12 @@
 # Zigbee Hub (ESP32 + CC2652P7) — Functional Specification Document (FSD)
 
-**Version:** 1.3  
-**Date:** 2026-05-28  
+**Version:** 1.4  
+**Date:** 2026-05-29  
 **Status:** Draft  
 **Changed (v1.1):** Storage layer replaced — NVS → LittleFS (JSON config + nanopb device files)  
 **Changed (v1.2):** Device Abstraction Layer added — typed Capability API hides ZCL internals from upper layer  
-**Changed (v1.3):** Physical user-button input (GPIO34) with multi-press detection (single / double / long)
+**Changed (v1.3):** Physical user-button input (GPIO34) with multi-press detection (single / double / long)  
+**Changed (v1.4):** Network status/config command API (FR-11); extended ZHA cluster set — IAS zone, pressure, occupancy, metering, electrical measurement, analog/binary I/O (FR-12)
 
 ---
 
@@ -539,6 +540,82 @@ ESP-IDF managed components are declared in `components/zb_storage/idf_component.
   short polling interval (default 10 ms) rather than per-edge interrupts, to keep
   the debounce / multi-press timing self-contained and avoid ISR-from-task races.
 
+#### FR-11: Network Status & Configuration Commands
+
+- **FR-11.1** [Must]: The framework shall provide `zb_network_info_get(zb_network_info_t *out)`
+  returning a snapshot of the current network state: derived `zb_network_status_t`, raw
+  `zb_state_t`, active PAN ID, active channel, permit-join TTL (seconds remaining), and
+  count of devices in the in-memory registry.
+- **FR-11.2** [Must]: `zb_network_info_get()` shall be callable from any framework state,
+  including before READY. When the framework has not yet reached READY, `pan_id` and
+  `channel` shall reflect the last values loaded from `/zb/config.json` (or Kconfig
+  defaults if no config file exists); `device_count` shall reflect the current in-memory
+  registry size; `permit_join_ttl` shall be 0.
+- **FR-11.3** [Must]: `zb_network_status_t` shall map the internal `zb_state_t` to a
+  caller-facing status as follows:
+    - `ZB_NET_STATUS_OFFLINE` — UNINITIALIZED or ZNP_INIT (coprocessor not yet responding).
+    - `ZB_NET_STATUS_FORMING` — NETWORK_CHECK, FORMING, or RECONFIGURING.
+    - `ZB_NET_STATUS_READY` — READY, no permit-join window open.
+    - `ZB_NET_STATUS_PERMIT_JOIN` — READY, permit-join window open (`permit_join_ttl > 0`).
+    - `ZB_NET_STATUS_FW_UPDATE` — FW_UPDATE, normal traffic suspended.
+- **FR-11.4** [Must]: The framework shall provide `zb_network_param_set(const zb_net_config_t *cfg)`
+  to update PAN ID, channel, network key, and UART baud rate. Parameters shall be persisted
+  to `/zb/config.json`. If called while in READY state and PAN ID or channel differs from
+  the active network, the framework shall trigger a RECONFIGURING transition.
+- **FR-11.5** [Should]: `zb_network_info_get()` shall be thread-safe with no ZNP
+  round-trip; it shall read module-static variables updated only by the framework task.
+- **FR-11.6** [Should]: The framework shall maintain a `permit_join_ttl` counter,
+  decremented by a 1-second FreeRTOS timer while in READY state, so that
+  `zb_network_info_get()` can report the remaining join window without querying the
+  coprocessor.
+
+#### FR-12: Extended ZHA Device Cluster Support
+
+- **FR-12.1** [Must]: The built-in cluster schema table shall be extended to support the
+  following ZHA clusters in addition to the initial six defined in FR-9.2:
+
+    | Cluster ID | Name | Settable | Primary `value` field in `zb_cap_event_t` |
+    |-----------|------|----------|------------------------------------------|
+    | 0x0403 | PressureMeasurement | No | `int16_t pressure_hpa` (hPa) |
+    | 0x0406 | OccupancySensing | No | `bool occupancy` |
+    | 0x0500 | IASZone | No | `zb_ias_zone_t ias_zone` |
+    | 0x0702 | Metering | No | `zb_metering_t metering` |
+    | 0x0B04 | ElectricalMeasurement | No | `zb_electrical_t electrical` |
+    | 0x000C | AnalogInput | No | `float analog_input` (PresentValue) |
+    | 0x000F | BinaryInput | No | `bool binary_input` |
+    | 0x0010 | BinaryOutput | Yes (`bool`) | `bool binary_output` |
+
+- **FR-12.2** [Must]: The IAS Zone schema (0x0500) shall decode three ZCL attributes into
+  `zb_ias_zone_t`: `ZoneState` (0x0000, uint8), `ZoneType` (0x0001, uint16), and
+  `ZoneStatus` (0x0002, uint16 bitmap). Zone type values include: `0x000D` motion detector,
+  `0x0015` contact switch, `0x0028` fire/smoke sensor, `0x002A` water/flood sensor,
+  `0x002B` CO sensor, `0x002C` personal emergency, `0x0225` vibration sensor.
+  ZoneStatus bitmap: bit 0 = Alarm1, bit 1 = Alarm2, bit 2 = Tamper, bit 3 = LowBattery,
+  bit 4 = SupervisionReports, bit 5 = RestoreReports, bit 6 = Trouble, bit 7 = AC/mains.
+- **FR-12.3** [Must]: The IAS Zone schema shall handle `IAS_ZONE_STATUS_CHANGE_NOTIFICATION`
+  (cluster-specific command 0x00) as an unsolicited report: decode the zone status bitmap
+  from the command payload and deliver a `ZB_EVENT_CAP_REPORT` with `value.ias_zone`
+  updated, without requiring a read-attribute poll from the upper layer.
+- **FR-12.4** [Must]: The Metering schema (0x0702) shall decode `CurrentSummationDelivered`
+  (0x0000, uint48), `CurrentSummationReceived` (0x0001, uint48), and `InstantaneousDemand`
+  (0x0400, int24) into `zb_metering_t`. Raw summation values are in device-native units;
+  callers apply `Multiplier` (0x0301) ÷ `Divisor` (0x0302) for engineering-unit conversion.
+- **FR-12.5** [Must]: The Electrical Measurement schema (0x0B04) shall decode `RMSVoltage`
+  (0x0505), `RMSCurrent` (0x0508), `ActivePower` (0x050B), and `PowerFactor` (0x0510) into
+  `zb_electrical_t`. Default ZHA scaling: RMSVoltage in 0.1 V units; RMSCurrent in mA;
+  ActivePower in W; PowerFactor as signed percent.
+- **FR-12.6** [Must]: The BinaryOutput schema (0x0010) shall provide a typed `set` function
+  `zb_cap_binary_output_set(uint64_t ieee, zb_cap_id_t cap, bool value)` that issues a ZCL
+  Write Attributes command for `PresentValue` (0x0055).
+- **FR-12.7** [Should]: When a Metering device's `Multiplier` and `Divisor` are not yet
+  cached in the device record, the schema's `get` function shall issue additional
+  read-attribute requests for both scaling attributes immediately after the primary
+  summation read, cache the results in the cluster attribute store, and use them for
+  all subsequent conversions without further ZNP round-trips.
+- **FR-12.8** [Should]: All new cluster schemas shall be registered at framework init time
+  via the same `zb_schema_register()` mechanism used by the initial six, preserving
+  runtime extensibility (FR-9.9).
+
 ### 4.2 Non-Functional Requirements
 
 - **NFR-1.1** [Must]: SREQ→SRSP round-trip latency for standard commands shall not
@@ -844,16 +921,24 @@ typedef struct {
 } zb_cluster_schema_t;
 ```
 
-**Built-in schema table** (initial set; extensible via `zb_schema_register()`):
+**Built-in schema table** (extensible via `zb_schema_register()`; initial 6 + FR-12 additions):
 
-| Cluster ID | Name | Typed set params | Typed get |
-|-----------|------|-----------------|-----------|
+| Cluster ID | Name | Typed set params | Typed get / notes |
+|-----------|------|-----------------|-------------------|
 | 0x0006 | OnOff | `bool on` | read OnOff attr |
 | 0x0008 | LevelControl | `uint8_t level` | read CurrentLevel attr |
 | 0x0300 | ColorControl | `uint16_t x, uint16_t y` | read CurrentX/Y attrs |
-| 0x0402 | TemperatureMeasurement | — (read-only) | read MeasuredValue attr |
-| 0x0405 | RelativeHumidity | — (read-only) | read MeasuredValue attr |
-| 0x0400 | IlluminanceMeasurement | — (read-only) | read MeasuredValue attr |
+| 0x0402 | TemperatureMeasurement | — | read MeasuredValue attr |
+| 0x0405 | RelativeHumidity | — | read MeasuredValue attr |
+| 0x0400 | IlluminanceMeasurement | — | read MeasuredValue attr |
+| 0x0403 | PressureMeasurement | — | read MeasuredValue attr (hPa) |
+| 0x0406 | OccupancySensing | — | read Occupancy bitmap attr |
+| 0x0500 | IASZone | — | read ZoneState/Type/Status; unsolicited STATUS_CHANGE_NOTIFICATION |
+| 0x0702 | Metering | — | read Summation + InstantaneousDemand; auto-fetch Multiplier/Divisor |
+| 0x0B04 | ElectricalMeasurement | — | read RMSVoltage, RMSCurrent, ActivePower, PowerFactor |
+| 0x000C | AnalogInput | — | read PresentValue (float) |
+| 0x000F | BinaryInput | — | read PresentValue (bool) |
+| 0x0010 | BinaryOutput | `bool value` | read/write PresentValue via ZCL Write Attributes |
 
 #### 6.3.1c Capability Event (`zb_cap_event_t`)
 
@@ -862,13 +947,21 @@ typedef struct {
     uint64_t    ieee_addr;   /* device identifier */
     zb_cap_id_t cap_id;      /* ZB_CAP_ID(ep, cluster) */
     union {
-        bool    on_off;                  /* cluster 0x0006 */
-        uint8_t level;                   /* cluster 0x0008  (0–254) */
+        bool     on_off;                  /* cluster 0x0006 */
+        uint8_t  level;                   /* cluster 0x0008  (0–254) */
         struct { uint16_t x; uint16_t y; } color_xy;  /* cluster 0x0300 */
-        int16_t temperature_hundredths;  /* cluster 0x0402  (°C × 100) */
-        uint16_t humidity_hundredths;    /* cluster 0x0405  (% × 100) */
-        uint32_t illuminance_lux;        /* cluster 0x0400 */
-        struct {                         /* fallback for unknown clusters */
+        int16_t  temperature_hundredths;  /* cluster 0x0402  (°C × 100) */
+        int16_t  pressure_hpa;            /* cluster 0x0403  (hPa) */
+        uint16_t humidity_hundredths;     /* cluster 0x0405  (% × 100) */
+        uint32_t illuminance_lux;         /* cluster 0x0400 */
+        bool     occupancy;               /* cluster 0x0406 */
+        zb_ias_zone_t   ias_zone;         /* cluster 0x0500 — see §6.3.1e */
+        zb_metering_t   metering;         /* cluster 0x0702 — see §6.3.1e */
+        zb_electrical_t electrical;       /* cluster 0x0B04 — see §6.3.1e */
+        float    analog_input;            /* cluster 0x000C  (PresentValue) */
+        bool     binary_input;            /* cluster 0x000F */
+        bool     binary_output;           /* cluster 0x0010 */
+        struct {                          /* fallback for unknown clusters */
             uint16_t attr_id;
             uint8_t  data_type;
             uint8_t  raw[8];
@@ -877,6 +970,65 @@ typedef struct {
 } zb_cap_event_t;
 
 typedef void (*zb_cap_event_cb_t)(const zb_cap_event_t *event, void *ctx);
+```
+
+#### 6.3.1d Network Info (`zb_network_info_t`) — FR-11
+
+```c
+typedef enum {
+    ZB_NET_STATUS_OFFLINE = 0,   /* UNINITIALIZED or ZNP_INIT — coprocessor not responding */
+    ZB_NET_STATUS_FORMING,       /* NETWORK_CHECK / FORMING / RECONFIGURING */
+    ZB_NET_STATUS_READY,         /* READY — coordinator operational, no join window open */
+    ZB_NET_STATUS_PERMIT_JOIN,   /* READY — join window open (permit_join_ttl > 0) */
+    ZB_NET_STATUS_FW_UPDATE,     /* FW_UPDATE — normal traffic suspended */
+} zb_network_status_t;
+
+typedef struct {
+    zb_network_status_t status;          /* high-level derived status (FR-11.3) */
+    zb_state_t          fw_state;        /* raw framework state machine value */
+    uint16_t            pan_id;          /* active PAN ID; 0 if not yet configured */
+    uint8_t             channel;         /* active channel; 0 if not yet configured */
+    uint8_t             permit_join_ttl; /* seconds remaining in join window; 0 = closed */
+    uint16_t            device_count;    /* devices in the in-memory registry */
+} zb_network_info_t;
+```
+
+Populated by `zb_network_info_get()`. Valid from any framework state; fields not yet
+meaningful are set to zero.
+
+#### 6.3.1e Extended ZHA Value Types — FR-12
+
+Supporting structs used in the `zb_cap_event_t.value` union for the extended cluster set:
+
+```c
+/* IAS Zone cluster (0x0500) — FR-12.2 */
+typedef struct {
+    uint8_t  zone_state;   /* 0=not enrolled, 1=enrolled */
+    uint16_t zone_type;    /* device class: 0x000D=motion, 0x0015=contact,
+                            *   0x0028=fire/smoke, 0x002A=water/flood,
+                            *   0x002B=CO, 0x002C=personal emergency,
+                            *   0x0225=vibration */
+    uint16_t zone_status;  /* bitmap: bit0=Alarm1, bit1=Alarm2, bit2=Tamper,
+                            *         bit3=LowBattery, bit4=SupervisionReports,
+                            *         bit5=RestoreReports, bit6=Trouble,
+                            *         bit7=AC/mains */
+} zb_ias_zone_t;
+
+/* Metering cluster (0x0702) — FR-12.4 */
+typedef struct {
+    uint64_t summation_delivered;  /* total energy/volume delivered (ZCL uint48, raw) */
+    uint64_t summation_received;   /* total energy/volume received  (ZCL uint48, raw) */
+    int32_t  instantaneous_demand; /* current power or flow (ZCL int24, raw) */
+} zb_metering_t;
+/* Apply Multiplier (attr 0x0301) / Divisor (attr 0x0302) for engineering units. */
+
+/* Electrical Measurement cluster (0x0B04) — FR-12.5 */
+typedef struct {
+    uint16_t rms_voltage;  /* AC voltage in 0.1 V steps  (e.g. 2300 = 230.0 V) */
+    uint16_t rms_current;  /* AC current in mA            (e.g. 1500 = 1.500 A) */
+    int16_t  active_power; /* active power in W */
+    int8_t   power_factor; /* power factor in %  (signed: −100 to +100) */
+} zb_electrical_t;
 ```
 
 #### 6.3.2 Subscriber Event (`zb_event_t`)
@@ -956,7 +1108,7 @@ esp_err_t zb_cap_set(uint64_t ieee, zb_cap_id_t cap,
                      const void *value, size_t len);
 esp_err_t zb_cap_get(uint64_t ieee, zb_cap_id_t cap);
 
-/* Typed convenience functions (generated per built-in cluster schema) */
+/* Typed convenience functions — initial cluster set */
 esp_err_t zb_cap_onoff_set(uint64_t ieee, zb_cap_id_t cap, bool on);
 esp_err_t zb_cap_onoff_get(uint64_t ieee, zb_cap_id_t cap);
 esp_err_t zb_cap_level_set(uint64_t ieee, zb_cap_id_t cap, uint8_t level);
@@ -966,6 +1118,17 @@ esp_err_t zb_cap_color_xy_set(uint64_t ieee, zb_cap_id_t cap,
 esp_err_t zb_cap_temp_get(uint64_t ieee, zb_cap_id_t cap);
 esp_err_t zb_cap_humidity_get(uint64_t ieee, zb_cap_id_t cap);
 esp_err_t zb_cap_illuminance_get(uint64_t ieee, zb_cap_id_t cap);
+
+/* Extended ZHA cluster functions (FR-12) */
+esp_err_t zb_cap_pressure_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_occupancy_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_ias_zone_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_metering_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_electrical_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_analog_input_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_binary_input_get(uint64_t ieee, zb_cap_id_t cap);
+esp_err_t zb_cap_binary_output_set(uint64_t ieee, zb_cap_id_t cap, bool value);
+esp_err_t zb_cap_binary_output_get(uint64_t ieee, zb_cap_id_t cap);
 
 /* Schema extension */
 esp_err_t zb_schema_register(const zb_cluster_schema_t *schema);
@@ -992,6 +1155,18 @@ void my_event_handler(const zb_cap_event_t *e, void *ctx) {
     if (ZB_CAP_CLUSTER(e->cap_id) == 0x0006)
         printf("OnOff: %s\n", e->value.on_off ? "ON" : "OFF");
 }
+```
+
+#### Network Info API (`zb_framework.h`) — FR-11
+
+```c
+/* Query current network status without a ZNP round-trip (FR-11.1, FR-11.5).
+ * Safe to call from any state; fields not yet meaningful are zeroed. */
+esp_err_t zb_network_info_get(zb_network_info_t *out);
+
+/* Persist updated network parameters; triggers RECONFIGURING if channel or
+ * PAN ID has changed while the framework is in READY state (FR-11.4). */
+esp_err_t zb_network_param_set(const zb_net_config_t *cfg);
 ```
 
 #### Storage API (`zb_storage.h`)
@@ -1165,6 +1340,18 @@ The hub will form a new network on next boot using compile-time Kconfig defaults
 | TC-3.21 | Button double press detected | Two presses within 400 ms | One `ZB_EVENT_BUTTON` with kind=DOUBLE; no SINGLE event emitted |
 | TC-3.22 | Button long press detected | Hold the button for ≥ 1.5 s | `ZB_EVENT_BUTTON` (kind=LONG) emitted once while still held; no SINGLE event on release |
 | TC-3.23 | Button debounce | Inject a 5 ms bounce burst on the input | No event emitted (signal not stable across debounce window) |
+| TC-3.24 | `zb_network_info_get` — offline | Call during ZNP_INIT before coprocessor responds | `status==ZB_NET_STATUS_OFFLINE`; `fw_state==ZB_STATE_ZNP_INIT`; `device_count==0` |
+| TC-3.25 | `zb_network_info_get` — READY | Call after coordinator reaches READY | `status==ZB_NET_STATUS_READY`; `pan_id` and `channel` match `/zb/config.json` |
+| TC-3.26 | `zb_network_info_get` — permit-join | Call after `zb_cmd_permit_join(60)` | `status==ZB_NET_STATUS_PERMIT_JOIN`; `permit_join_ttl` in range 1–60; decrements each second |
+| TC-3.27 | `zb_network_param_set` persists | Set new channel while READY; read back `/zb/config.json` | File updated with new channel; reboot detects NV mismatch → RECONFIGURING |
+| TC-3.28 | IAS zone status change (unsolicited) | IAS device triggers alarm (Alarm1 bit) | `ZB_EVENT_CAP_REPORT` with `value.ias_zone.zone_status` bit 0 set; no read-attr poll required |
+| TC-3.29 | IAS zone type and enroll state | Join IAS contact switch; call `zb_cap_ias_zone_get` | `value.ias_zone.zone_state==1` (enrolled); `zone_type==0x0015` (contact switch) |
+| TC-3.30 | Metering summation delivered | Subscribe to smart plug reporting energy | `ZB_EVENT_CAP_REPORT`; `value.metering.summation_delivered > 0`; `instantaneous_demand` reflects live power |
+| TC-3.31 | Electrical measurement | Subscribe to smart plug; trigger `zb_cap_electrical_get` | `value.electrical.rms_voltage` in range 2100–2400 (210–240 V); `active_power >= 0` |
+| TC-3.32 | Occupancy sensing | Motion triggers PIR sensor report | `ZB_EVENT_CAP_REPORT` with `value.occupancy == true`; clears on subsequent unoccupied report |
+| TC-3.33 | Pressure measurement | Subscribe to pressure sensor; trigger report | `value.pressure_hpa` in plausible range 900–1100 hPa |
+| TC-3.34 | AnalogInput present value | Subscribe to AI device; trigger attribute report | `value.analog_input` is a finite float; matches raw ZCL float32 attribute |
+| TC-3.35 | BinaryOutput set | `zb_cap_binary_output_set(ieee, cap, true)` while READY | ZCL Write Attributes sent to device; output activates; no error returned |
 
 ### 8.4 Phase 4 Verification — Firmware Update & Integration
 
@@ -1283,10 +1470,26 @@ The hub will form a new network on next boot using compile-time Kconfig defaults
 | FR-10.8 | Should | —       | GAP (implementation detail; code review) |
 | NFR-6.1 | Should | TC-3.11, TC-3.12 | Covered |
 | NFR-6.2 | Should | TC-3.13, AT-03 | Covered |
+| FR-11.1 | Must   | TC-3.24, TC-3.25 | Covered |
+| FR-11.2 | Must   | TC-3.24 | Covered |
+| FR-11.3 | Must   | TC-3.24, TC-3.25, TC-3.26 | Covered |
+| FR-11.4 | Must   | TC-3.27 | Covered |
+| FR-11.5 | Should | —       | GAP (thread-safety: code review) |
+| FR-11.6 | Should | TC-3.26 | Covered |
+| FR-12.1 | Must   | TC-3.30, TC-3.31, TC-3.32, TC-3.33, TC-3.34, TC-3.35 | Covered |
+| FR-12.2 | Must   | TC-3.28, TC-3.29 | Covered |
+| FR-12.3 | Must   | TC-3.28 | Covered |
+| FR-12.4 | Must   | TC-3.30 | Covered |
+| FR-12.5 | Must   | TC-3.31 | Covered |
+| FR-12.6 | Must   | TC-3.35 | Covered |
+| FR-12.7 | Should | TC-3.30 | Covered |
+| FR-12.8 | Should | —       | GAP (implementation detail; code review) |
 
 **GAP items:**
 - **FR-5.8** (Subscriber callbacks from dedicated notify task, not ISR): requires code review / design verification rather than a black-box test. Add a code-review checklist item.
 - **NFR-2.1** (No blocking polling loops on ZNP receive): same as above — requires static analysis or code review, not a functional test. Add a code-review checklist item.
+- **FR-11.5** (`zb_network_info_get` thread-safety): implementation must read only module-static variables updated by a single writer task; verify by code review.
+- **FR-12.8** (Extended schemas registered at init via `zb_schema_register()`): implementation detail confirmed by TC-3.18 pattern; verify by code review.
 
 ---
 
