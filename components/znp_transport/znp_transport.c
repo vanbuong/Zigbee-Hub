@@ -82,11 +82,42 @@ static esp_err_t pca_write_reg(uint8_t reg, uint8_t val)
     return i2c_master_transmit(s_pca, buf, sizeof(buf), pdMS_TO_TICKS(100));
 }
 
+static esp_err_t pca_read_reg(uint8_t reg, uint8_t *out)
+{
+    return i2c_master_transmit_receive(s_pca, &reg, 1, out, 1, pdMS_TO_TICKS(100));
+}
+
+/* Write a register, then read it back and warn if it didn't latch. */
+static esp_err_t pca_write_reg_verify(uint8_t reg, uint8_t val)
+{
+    esp_err_t err = pca_write_reg(reg, val);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "PCA9538 write reg 0x%02x = 0x%02x failed: %s",
+                 reg, val, esp_err_to_name(err));
+        return err;
+    }
+
+    uint8_t readback = 0;
+    err = pca_read_reg(reg, &readback);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "PCA9538 readback reg 0x%02x failed: %s",
+                 reg, esp_err_to_name(err));
+        return err;
+    }
+    if (readback != val) {
+        ESP_LOGW(TAG, "PCA9538 readback mismatch: reg 0x%02x wrote=0x%02x read=0x%02x",
+                 reg, val, readback);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    ESP_LOGD(TAG, "PCA9538 reg 0x%02x = 0x%02x (verified)", reg, val);
+    return ESP_OK;
+}
+
 static esp_err_t pca_set_bit(uint8_t bit, bool high)
 {
     if (high) s_pca_output |=  (uint8_t)(1u << bit);
     else      s_pca_output &= (uint8_t)~(1u << bit);
-    return pca_write_reg(0x01, s_pca_output);
+    return pca_write_reg_verify(0x01, s_pca_output);
 }
 
 static esp_err_t pca_init(const znp_transport_config_t *cfg)
@@ -133,17 +164,28 @@ static esp_err_t pca_init(const znp_transport_config_t *cfg)
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c_bus, &dev_cfg, &s_pca),
                         TAG, "i2c_master_bus_add_device failed");
 
+    /* Probe: read the configuration register (POR default = 0xFF, all inputs).
+     * This confirms the device address responds and the chip is in a sane state. */
+    uint8_t probe = 0;
+    esp_err_t probe_err = pca_read_reg(0x03, &probe);
+    if (probe_err != ESP_OK) {
+        ESP_LOGE(TAG, "PCA9538 probe (read config) failed: %s — wrong I2C address or chip not present",
+                 esp_err_to_name(probe_err));
+        return probe_err;
+    }
+    ESP_LOGI(TAG, "PCA9538 POR config = 0x%02x (expected 0xFF on a fresh chip)", probe);
+
     /* Idle output value: both control bits HIGH (active-low signals not asserted).
      * Set output register first so the lines aren't briefly LOW when we switch
      * the configuration register to "output". */
     s_pca_output = 0xFF;
-    ESP_RETURN_ON_ERROR(pca_write_reg(0x01, s_pca_output),
+    ESP_RETURN_ON_ERROR(pca_write_reg_verify(0x01, s_pca_output),
                         TAG, "pca write output failed");
 
     /* Configure reset/BSL bits as outputs (0 = output); leave others as inputs (1) */
     uint8_t config_reg = (uint8_t)~((1u << cfg->pca_reset_bit) |
                                      (1u << cfg->pca_bsl_bit));
-    ESP_RETURN_ON_ERROR(pca_write_reg(0x03, config_reg),
+    ESP_RETURN_ON_ERROR(pca_write_reg_verify(0x03, config_reg),
                         TAG, "pca write config failed");
 
     ESP_LOGI(TAG, "PCA9538 init OK (i2c=%d sda=%d scl=%d addr=0x%02x rst_bit=%d bsl_bit=%d)",
