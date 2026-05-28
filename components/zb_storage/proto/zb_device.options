@@ -1,0 +1,7 @@
+# nanopb static allocation options for zb_device.proto
+# These bound the maximum sizes so all structs are statically allocated.
+
+ZbDeviceRecord.endpoints    max_count:8
+ZbEndpoint.clusters         max_count:16
+ZbClusterCache.attrs        max_count:8
+ZbAttrCache.value           max_size:8

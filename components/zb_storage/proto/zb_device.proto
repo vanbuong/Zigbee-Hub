@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+// Cached ZCL attribute value for a single attribute.
+message ZbAttrCache {
+    uint32 attr_id    = 1;  // ZCL attribute ID
+    uint32 data_type  = 2;  // ZCL data type byte
+    bytes  value      = 3;  // raw attribute value (nanopb: max_size:8)
+    uint32 updated_ms = 4;  // ESP32 tick time of last update
+}
+
+// ZCL cluster with cached attribute values.
+message ZbClusterCache {
+    uint32 cluster_id         = 1;
+    repeated ZbAttrCache attrs = 2;  // nanopb: max_count:8
+}
+
+// Single endpoint on a Zigbee device.
+message ZbEndpoint {
+    uint32 ep_id                      = 1;
+    uint32 profile_id                 = 2;
+    uint32 device_id                  = 3;
+    repeated ZbClusterCache clusters  = 4;  // nanopb: max_count:16
+}
+
+// Complete device record — serialized as one .pb file per device.
+message ZbDeviceRecord {
+    uint64 ieee_addr              = 1;  // 64-bit IEEE address (EUI-64)
+    uint32 network_addr           = 2;  // 16-bit ZNP network address
+    repeated ZbEndpoint endpoints = 3;  // nanopb: max_count:8
+    uint32 last_seen_ms           = 4;  // ESP32 tick time of last communication
+}

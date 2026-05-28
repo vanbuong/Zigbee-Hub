@@ -1,0 +1,33 @@
+menu "Zigbee Storage (LittleFS)"
+
+    config ZB_STORAGE_PARTITION_LABEL
+        string "LittleFS partition label"
+        default "storage"
+        help
+            Must match the partition name in partitions.csv.
+
+    config ZB_STORAGE_MOUNT_POINT
+        string "VFS mount point"
+        default "/zb"
+        help
+            Base path for all storage files. Config and device files
+            are placed relative to this path.
+
+    config ZB_STORAGE_FORMAT_ON_FAIL
+        bool "Format partition if mount fails"
+        default y
+        help
+            If the LittleFS partition cannot be mounted (e.g. first boot or
+            corruption), format it automatically and continue. Disable in
+            production to detect silent data loss.
+
+    config ZB_DEV_PB_MAX_SIZE
+        int "Maximum encoded device protobuf size (bytes)"
+        default 1024
+        range 256 4096
+        help
+            Buffer size used when encoding or decoding a single ZbDeviceRecord.
+            Must be large enough for the maximum number of endpoints, clusters,
+            and attributes configured in zb_device.options.
+
+endmenu

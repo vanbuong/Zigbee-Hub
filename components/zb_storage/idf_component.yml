@@ -1,0 +1,7 @@
+## IDF Component Manager dependencies
+## Run `idf.py update-dependencies` once before first build to fetch these.
+
+dependencies:
+  joltwallet/littlefs: ">=1.14.8"
+  nanopb/nanopb: ">=0.4.7"
+  idf: ">=5.0.0"
