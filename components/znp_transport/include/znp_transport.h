@@ -44,6 +44,17 @@ esp_err_t znp_transport_init(const znp_transport_config_t *cfg);
 esp_err_t znp_transport_send_sreq(const znp_frame_t *req, znp_frame_t *resp);
 
 /**
+ * Same as znp_transport_send_sreq() but with an explicit per-call timeout.
+ * Use for commands that take longer than the default (e.g. ZDO_STARTUP_FROM_APP
+ * may need ~10 s in Z-Stack 2.x because the stack does scan / commissioning
+ * before returning SRSP).
+ * @param timeout_ms  Wait this long for SRSP instead of cfg->sreq_timeout_ms.
+ */
+esp_err_t znp_transport_send_sreq_timeout(const znp_frame_t *req,
+                                           znp_frame_t *resp,
+                                           uint32_t timeout_ms);
+
+/**
  * Hard-reset the CC2652P7 by asserting its RESET GPIO, then wait for a
  * SYS_RESET_IND AREQ within reset_timeout_ms.
  * @return ESP_OK on success, ZNP_ERR_RESET_TIMEOUT if no indication received.

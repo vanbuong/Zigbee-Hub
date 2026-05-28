@@ -267,6 +267,13 @@ esp_err_t znp_transport_init(const znp_transport_config_t *cfg)
 
 esp_err_t znp_transport_send_sreq(const znp_frame_t *req, znp_frame_t *resp)
 {
+    return znp_transport_send_sreq_timeout(req, resp, s_cfg.sreq_timeout_ms);
+}
+
+esp_err_t znp_transport_send_sreq_timeout(const znp_frame_t *req,
+                                           znp_frame_t *resp,
+                                           uint32_t timeout_ms)
+{
     if (!s_initialized) {
         return ZNP_ERR_NOT_INIT;
     }
@@ -276,7 +283,7 @@ esp_err_t znp_transport_send_sreq(const znp_frame_t *req, znp_frame_t *resp)
     ESP_RETURN_ON_ERROR(znp_frame_encode(req, wire, sizeof(wire), &wire_len),
                         TAG, "encode failed");
 
-    if (xSemaphoreTake(s_sreq_mutex, pdMS_TO_TICKS(s_cfg.sreq_timeout_ms)) != pdTRUE) {
+    if (xSemaphoreTake(s_sreq_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         s_error_count++;
         return ZNP_ERR_TIMEOUT;
     }
@@ -291,9 +298,9 @@ esp_err_t znp_transport_send_sreq(const znp_frame_t *req, znp_frame_t *resp)
     uart_write_bytes(s_cfg.uart_port, wire, wire_len);
 
     esp_err_t result = ESP_OK;
-    if (xSemaphoreTake(s_srsp_sem, pdMS_TO_TICKS(s_cfg.sreq_timeout_ms)) != pdTRUE) {
-        ESP_LOGW(TAG, "SRSP timeout cmd_type=0x%02x cmd_id=0x%02x",
-                 req->cmd_type, req->cmd_id);
+    if (xSemaphoreTake(s_srsp_sem, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "SRSP timeout cmd_type=0x%02x cmd_id=0x%02x (timeout=%"PRIu32" ms)",
+                 req->cmd_type, req->cmd_id, timeout_ms);
         s_error_count++;
         result = ZNP_ERR_TIMEOUT;
     } else if (resp) {

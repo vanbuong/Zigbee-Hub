@@ -271,13 +271,24 @@ esp_err_t zb_net_af_register(uint8_t ep)
     return ESP_OK;
 }
 
+#define ZDO_STARTUP_FROM_APP_SREQ_TIMEOUT_MS  10000
+
 esp_err_t zb_net_startup_and_wait(uint32_t timeout_ms)
 {
-    /* ZDO_STARTUP_FROM_APP SREQ: payload = start delay (2 bytes, typically 0) */
+    /* ZDO_STARTUP_FROM_APP SREQ: payload = start delay (2 bytes, typically 0).
+     * In Z-Stack 2.x the coprocessor doesn't return SRSP until commissioning /
+     * scan completes, so use a 10 s per-call timeout instead of the default. */
     uint8_t payload[2] = {0, 0};
+    znp_frame_t req = {
+        .cmd_type    = ZNP_CMD_TYPE(ZNP_SUBSYS_ZDO, ZNP_FRAME_TYPE_SREQ),
+        .cmd_id      = ZDO_STARTUP_FROM_APP_CMD,
+        .payload_len = sizeof(payload),
+    };
+    memcpy(req.payload, payload, sizeof(payload));
+
     znp_frame_t resp;
-    esp_err_t err = send_sreq(ZNP_SUBSYS_ZDO, ZDO_STARTUP_FROM_APP_CMD,
-                               ZNP_FRAME_TYPE_SREQ, payload, sizeof(payload), &resp);
+    esp_err_t err = znp_transport_send_sreq_timeout(
+        &req, &resp, ZDO_STARTUP_FROM_APP_SREQ_TIMEOUT_MS);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ZDO_STARTUP_FROM_APP SREQ failed");
         return err;
