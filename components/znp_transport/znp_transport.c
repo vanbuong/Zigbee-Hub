@@ -10,7 +10,7 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "driver/uart.h"
-#include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 
 static const char *TAG = "znp_transport";
@@ -58,6 +58,75 @@ typedef enum {
 static void znp_rx_task(void *arg);
 static void znp_dispatch_task(void *arg);
 
+/* ---- PCA9538 (I2C GPIO expander) driver ----
+ *
+ * Register map (datasheet):
+ *   0x00 input port (read-only)
+ *   0x01 output port
+ *   0x02 polarity inversion
+ *   0x03 configuration (1 = input, 0 = output)
+ *
+ * We use bits cfg->pca_reset_bit and cfg->pca_bsl_bit as outputs (active-low).
+ * Both pins idle HIGH (1 = not asserted) for normal CC2652P7 operation.
+ */
+
+static i2c_master_bus_handle_t s_i2c_bus;
+static i2c_master_dev_handle_t s_pca;
+static uint8_t                 s_pca_output;   /* shadow of register 0x01 */
+
+static esp_err_t pca_write_reg(uint8_t reg, uint8_t val)
+{
+    uint8_t buf[2] = { reg, val };
+    return i2c_master_transmit(s_pca, buf, sizeof(buf), pdMS_TO_TICKS(100));
+}
+
+static esp_err_t pca_set_bit(uint8_t bit, bool high)
+{
+    if (high) s_pca_output |=  (uint8_t)(1u << bit);
+    else      s_pca_output &= (uint8_t)~(1u << bit);
+    return pca_write_reg(0x01, s_pca_output);
+}
+
+static esp_err_t pca_init(const znp_transport_config_t *cfg)
+{
+    i2c_master_bus_config_t bus_cfg = {
+        .clk_source                   = I2C_CLK_SRC_DEFAULT,
+        .i2c_port                     = cfg->pca_i2c_port,
+        .scl_io_num                   = cfg->pca_scl,
+        .sda_io_num                   = cfg->pca_sda,
+        .glitch_ignore_cnt            = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &s_i2c_bus),
+                        TAG, "i2c_new_master_bus failed");
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = cfg->pca_addr,
+        .scl_speed_hz    = 100000,
+    };
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c_bus, &dev_cfg, &s_pca),
+                        TAG, "i2c_master_bus_add_device failed");
+
+    /* Idle output value: both control bits HIGH (active-low signals not asserted).
+     * Set output register first so the lines aren't briefly LOW when we switch
+     * the configuration register to "output". */
+    s_pca_output = 0xFF;
+    ESP_RETURN_ON_ERROR(pca_write_reg(0x01, s_pca_output),
+                        TAG, "pca write output failed");
+
+    /* Configure reset/BSL bits as outputs (0 = output); leave others as inputs (1) */
+    uint8_t config_reg = (uint8_t)~((1u << cfg->pca_reset_bit) |
+                                     (1u << cfg->pca_bsl_bit));
+    ESP_RETURN_ON_ERROR(pca_write_reg(0x03, config_reg),
+                        TAG, "pca write config failed");
+
+    ESP_LOGI(TAG, "PCA9538 init OK (i2c=%d sda=%d scl=%d addr=0x%02x rst_bit=%d bsl_bit=%d)",
+             cfg->pca_i2c_port, cfg->pca_sda, cfg->pca_scl,
+             cfg->pca_addr, cfg->pca_reset_bit, cfg->pca_bsl_bit);
+    return ESP_OK;
+}
+
 /* ---- Init ---- */
 
 esp_err_t znp_transport_init(const znp_transport_config_t *cfg)
@@ -88,21 +157,9 @@ esp_err_t znp_transport_init(const znp_transport_config_t *cfg)
                                      UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE),
                         TAG, "uart_set_pin failed");
 
-    /* Reset GPIO — output, default high (not in reset) */
-    gpio_config_t io_cfg = {
-        .pin_bit_mask = (1ULL << cfg->gpio_reset),
-        .mode         = GPIO_MODE_OUTPUT,
-        .pull_up_en   = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    ESP_RETURN_ON_ERROR(gpio_config(&io_cfg), TAG, "gpio_config reset failed");
-    gpio_set_level(cfg->gpio_reset, 1);
-
-    /* BSL GPIO — output, default high (not invoking BSL) */
-    io_cfg.pin_bit_mask = (1ULL << cfg->gpio_bsl);
-    ESP_RETURN_ON_ERROR(gpio_config(&io_cfg), TAG, "gpio_config bsl failed");
-    gpio_set_level(cfg->gpio_bsl, 1);
+    /* PCA9538 — drives RESET (bit cfg->pca_reset_bit) and BSL (bit cfg->pca_bsl_bit).
+     * Both idle HIGH (de-asserted). */
+    ESP_RETURN_ON_ERROR(pca_init(cfg), TAG, "pca_init failed");
 
     /* Queues and synchronization primitives */
     s_areq_queue   = xQueueCreate(AREQ_QUEUE_DEPTH, sizeof(znp_frame_t));
@@ -132,10 +189,9 @@ esp_err_t znp_transport_init(const znp_transport_config_t *cfg)
     }
 
     s_initialized = true;
-    ESP_LOGI(TAG, "initialized (uart=%d baud=%d tx=%d rx=%d rst=%d bsl=%d)",
+    ESP_LOGI(TAG, "initialized (uart=%d baud=%d tx=%d rx=%d)",
              cfg->uart_port, cfg->baud_rate,
-             cfg->gpio_tx, cfg->gpio_rx,
-             cfg->gpio_reset, cfg->gpio_bsl);
+             cfg->gpio_tx, cfg->gpio_rx);
     return ESP_OK;
 }
 
@@ -191,10 +247,12 @@ esp_err_t znp_transport_reset_coprocessor(void)
     /* Drain existing reset indications */
     xSemaphoreTake(s_reset_ind_sem, 0);
 
-    ESP_LOGI(TAG, "asserting RESET on GPIO%d", s_cfg.gpio_reset);
-    gpio_set_level(s_cfg.gpio_reset, 0);
+    ESP_LOGI(TAG, "asserting RESET via PCA9538 bit %d", s_cfg.pca_reset_bit);
+    /* Ensure BSL is de-asserted so the chip enters normal app mode, not BSL. */
+    pca_set_bit(s_cfg.pca_bsl_bit,   true);   /* HIGH = not asserting BSL */
+    pca_set_bit(s_cfg.pca_reset_bit, false);  /* LOW  = assert reset */
     vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level(s_cfg.gpio_reset, 1);
+    pca_set_bit(s_cfg.pca_reset_bit, true);   /* release reset */
 
     if (xSemaphoreTake(s_reset_ind_sem,
                        pdMS_TO_TICKS(s_cfg.reset_timeout_ms)) != pdTRUE) {

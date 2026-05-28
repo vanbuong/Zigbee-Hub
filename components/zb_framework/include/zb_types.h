@@ -21,12 +21,20 @@ typedef struct {
     uint16_t    pan_id;         /* PAN ID; 0 → use CONFIG_ZB_DEFAULT_PAN_ID */
     uint8_t     channel;        /* Zigbee channel 11-26; 0 → use CONFIG_ZB_DEFAULT_CHANNEL */
     uint8_t     nwk_key[16];    /* 128-bit network key; all-zeros → use default */
+
+    /* UART to CC2652P7 */
     uart_port_t uart_port;
     uint32_t    uart_baud;
     int         gpio_tx;
     int         gpio_rx;
-    int         gpio_reset;     /* CC2652P7 RESET pin */
-    int         gpio_bsl;       /* CC2652P7 BSL invoke pin */
+
+    /* CC2652P7 RESET / BSL are routed through a PCA9538 I2C GPIO expander */
+    int         pca_sda;        /* I2C SDA GPIO */
+    int         pca_scl;        /* I2C SCL GPIO */
+    int         pca_i2c_port;   /* I2C peripheral number */
+    uint8_t     pca_addr;       /* PCA9538 7-bit I2C address */
+    uint8_t     pca_reset_bit;  /* PCA9538 bit driving CC2652P7 RESET (active-low) */
+    uint8_t     pca_bsl_bit;    /* PCA9538 bit driving CC2652P7 BSL_INVOKE (active-low) */
 } zb_config_t;
 
 /* ---- Version info ---- */

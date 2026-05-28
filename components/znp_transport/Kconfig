@@ -15,28 +15,57 @@ menu "ZNP Transport"
 
     config ZNP_GPIO_TX
         int "TX GPIO pin"
-        default 17
+        default 2
         help
             ESP32 GPIO connected to CC2652P7 RX (ZNP data).
 
     config ZNP_GPIO_RX
         int "RX GPIO pin"
-        default 16
+        default 32
         help
             ESP32 GPIO connected to CC2652P7 TX (ZNP data).
 
-    config ZNP_GPIO_RESET
-        int "CC2652P7 RESET GPIO pin"
+    comment "CC2652P7 RESET / BSL routed through PCA9538 I2C GPIO expander"
+
+    config ZNP_PCA9538_SDA
+        int "PCA9538 I2C SDA GPIO pin"
         default 4
         help
-            ESP32 GPIO connected to CC2652P7 RESET pin (active-low).
+            ESP32 GPIO connected to the PCA9538 SDA line.
 
-    config ZNP_GPIO_BSL
-        int "CC2652P7 BSL invoke GPIO pin"
-        default 5
+    config ZNP_PCA9538_SCL
+        int "PCA9538 I2C SCL GPIO pin"
+        default 33
         help
-            ESP32 GPIO connected to CC2652P7 BSL invoke pin.
-            Drive low before reset to enter bootloader mode.
+            ESP32 GPIO connected to the PCA9538 SCL line.
+
+    config ZNP_PCA9538_I2C_PORT
+        int "PCA9538 I2C port number"
+        default 0
+        range 0 1
+        help
+            ESP32 I2C peripheral used to talk to the PCA9538.
+
+    config ZNP_PCA9538_ADDR
+        hex "PCA9538 7-bit I2C address"
+        default 0x70
+        range 0x70 0x73
+        help
+            PCA9538 address (0x70..0x73 set by A0/A1 strapping pins).
+
+    config ZNP_PCA9538_RESET_BIT
+        int "PCA9538 bit position for CC2652P7 RESET"
+        default 0
+        range 0 7
+        help
+            PCA9538 IO bit driving the CC2652P7 RESET pin (active-low).
+
+    config ZNP_PCA9538_BSL_BIT
+        int "PCA9538 bit position for CC2652P7 BSL invoke"
+        default 1
+        range 0 7
+        help
+            PCA9538 IO bit driving the CC2652P7 BSL_INVOKE pin (active-low).
 
     config ZNP_SREQ_TIMEOUT_MS
         int "SREQ response timeout (ms)"

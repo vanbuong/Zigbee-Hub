@@ -97,10 +97,14 @@ void app_main(void)
         .channel    = CONFIG_ZB_DEFAULT_CHANNEL,
         .uart_port  = CONFIG_ZNP_UART_PORT,
         .uart_baud  = CONFIG_ZNP_UART_BAUD,
-        .gpio_tx    = CONFIG_ZNP_GPIO_TX,
-        .gpio_rx    = CONFIG_ZNP_GPIO_RX,
-        .gpio_reset = CONFIG_ZNP_GPIO_RESET,
-        .gpio_bsl   = CONFIG_ZNP_GPIO_BSL,
+        .gpio_tx        = CONFIG_ZNP_GPIO_TX,
+        .gpio_rx        = CONFIG_ZNP_GPIO_RX,
+        .pca_sda        = CONFIG_ZNP_PCA9538_SDA,
+        .pca_scl        = CONFIG_ZNP_PCA9538_SCL,
+        .pca_i2c_port   = CONFIG_ZNP_PCA9538_I2C_PORT,
+        .pca_addr       = CONFIG_ZNP_PCA9538_ADDR,
+        .pca_reset_bit  = CONFIG_ZNP_PCA9538_RESET_BIT,
+        .pca_bsl_bit    = CONFIG_ZNP_PCA9538_BSL_BIT,
     };
     memcpy(cfg.nwk_key, DEFAULT_NWK_KEY, sizeof(DEFAULT_NWK_KEY));
 

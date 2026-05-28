@@ -336,13 +336,17 @@ esp_err_t zb_framework_init(const zb_config_t *cfg)
 
     /* Initialize ZNP transport */
     znp_transport_config_t transport_cfg = {
-        .uart_port       = cfg->uart_port,
-        .baud_rate       = (int)cfg->uart_baud,
-        .gpio_tx         = cfg->gpio_tx,
-        .gpio_rx         = cfg->gpio_rx,
-        .gpio_reset      = cfg->gpio_reset,
-        .gpio_bsl        = cfg->gpio_bsl,
-        .sreq_timeout_ms = CONFIG_ZNP_SREQ_TIMEOUT_MS,
+        .uart_port        = cfg->uart_port,
+        .baud_rate        = (int)cfg->uart_baud,
+        .gpio_tx          = cfg->gpio_tx,
+        .gpio_rx          = cfg->gpio_rx,
+        .pca_sda          = cfg->pca_sda,
+        .pca_scl          = cfg->pca_scl,
+        .pca_i2c_port     = cfg->pca_i2c_port,
+        .pca_addr         = cfg->pca_addr,
+        .pca_reset_bit    = cfg->pca_reset_bit,
+        .pca_bsl_bit      = cfg->pca_bsl_bit,
+        .sreq_timeout_ms  = CONFIG_ZNP_SREQ_TIMEOUT_MS,
         .reset_timeout_ms = CONFIG_ZNP_RESET_TIMEOUT_MS,
     };
     esp_err_t err = znp_transport_init(&transport_cfg);

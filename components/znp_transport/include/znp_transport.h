@@ -10,12 +10,21 @@
 typedef struct {
     uart_port_t uart_port;      /* UART peripheral number */
     int         baud_rate;      /* Baud rate (default 115200) */
-    int         gpio_tx;        /* ESP32 TX GPIO */
-    int         gpio_rx;        /* ESP32 RX GPIO */
-    int         gpio_reset;     /* CC2652P7 RESET GPIO (active-low) */
-    int         gpio_bsl;       /* CC2652P7 BSL invoke GPIO */
-    uint32_t    sreq_timeout_ms; /* SREQ→SRSP timeout in ms (default 3000) */
-    uint32_t    reset_timeout_ms;/* Wait for SYS_RESET_IND after reset (default 3000) */
+    int         gpio_tx;        /* ESP32 TX GPIO (to CC2652P7 RX) */
+    int         gpio_rx;        /* ESP32 RX GPIO (from CC2652P7 TX) */
+
+    /* CC2652P7 RESET and BSL pins are not on the ESP32 directly — they are
+     * controlled through a PCA9538 8-bit I2C GPIO expander.  Both signals are
+     * active-low (output LOW = asserted). */
+    int         pca_sda;        /* ESP32 I2C SDA GPIO */
+    int         pca_scl;        /* ESP32 I2C SCL GPIO */
+    int         pca_i2c_port;   /* I2C peripheral number (0 or 1) */
+    uint8_t     pca_addr;       /* PCA9538 7-bit I2C address (0x70..0x73) */
+    uint8_t     pca_reset_bit;  /* PCA9538 bit driving CC2652P7 RESET */
+    uint8_t     pca_bsl_bit;    /* PCA9538 bit driving CC2652P7 BSL_INVOKE */
+
+    uint32_t    sreq_timeout_ms;  /* SREQ→SRSP timeout in ms (default 3000) */
+    uint32_t    reset_timeout_ms; /* Wait for SYS_RESET_IND after reset (default 3000) */
 } znp_transport_config_t;
 
 /**
