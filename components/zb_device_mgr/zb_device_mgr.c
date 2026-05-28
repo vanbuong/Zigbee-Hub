@@ -464,9 +464,9 @@ static void parse_simple_desc_rsp(const znp_frame_t *areq)
 
 void zb_dev_mgr_on_areq(const znp_frame_t *areq)
 {
-    uint8_t subsys = areq->cmd_type & 0x1F;
-
-    if (subsys == (ZNP_SUBSYS_ZDO & 0x1F)) {
+    /* Match on full cmd_type (frame-type + subsystem), not just the subsystem
+     * nibble — different subsystems can share cmd_id values. */
+    if (areq->cmd_type == ZNP_SUBSYS_ZDO_AREQ) {
         switch (areq->cmd_id) {
         case ZDO_TC_DEV_IND_CMD:
             parse_tc_dev_ind(areq);
@@ -486,7 +486,7 @@ void zb_dev_mgr_on_areq(const znp_frame_t *areq)
         default:
             break;
         }
-    } else if (subsys == (ZNP_SUBSYS_AF & 0x1F)) {
+    } else if (areq->cmd_type == ZNP_SUBSYS_AF_AREQ) {
         if (areq->cmd_id == AF_INCOMING_MSG_CMD) {
             parse_af_incoming(areq);
         }

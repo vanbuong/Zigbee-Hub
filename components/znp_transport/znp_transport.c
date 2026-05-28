@@ -452,7 +452,7 @@ static void znp_dispatch_task(void *arg)
 
         } else if (frame_type == ZNP_FRAME_TYPE_AREQ) {
             /* SYS_RESET_IND — signal reset semaphore as well as posting to AREQ queue */
-            if (frame.cmd_id == SYS_RESET_IND_CMD) {
+            if (frame.cmd_type == ZNP_SUBSYS_SYS_AREQ && frame.cmd_id == SYS_RESET_IND_CMD) {
                 xSemaphoreGive(s_reset_ind_sem);
             }
             if (xQueueSend(s_areq_queue, &frame, 0) != pdTRUE) {

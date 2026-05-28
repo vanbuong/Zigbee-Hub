@@ -5,19 +5,32 @@
 #include "esp_err.h"
 #include "znp_types.h"
 
-/*  Each subsystem constant is the cmd_type byte pre-OR'd with the SREQ frame
- *  type (0x20). ZNP_CMD_TYPE() re-applies the frame-type bits, so callers can
- *  pass these directly. The low 5 bits hold the actual MT subsystem ID. */
-#define ZNP_SUBSYS_SYS      0x21    /* subsystem 0x01 */
-#define ZNP_SUBSYS_MAC      0x22    /* subsystem 0x02 */
-#define ZNP_SUBSYS_NWK      0x23    /* subsystem 0x03 */
-#define ZNP_SUBSYS_AF       0x24    /* subsystem 0x04 */
-#define ZNP_SUBSYS_ZDO      0x25    /* subsystem 0x05 */
-#define ZNP_SUBSYS_SAPI     0x26    /* subsystem 0x06 */
-#define ZNP_SUBSYS_UTIL     0x27    /* subsystem 0x07 */
-#define ZNP_SUBSYS_DEBUG    0x28    /* subsystem 0x08 */
-#define ZNP_SUBSYS_APP      0x29    /* subsystem 0x09 */
-#define ZNP_SUBSYS_APP_CNF  0x2F    /* subsystem 0x0F */
+/*  Subsystem constants are cmd_type bytes (frame-type bits OR'd with the
+ *  5-bit subsystem ID). SREQ variants are 0x20|subsys; AREQ variants are
+ *  0x40|subsys. Multiple subsystems share cmd_id values (e.g. 0x80 is
+ *  SYS_RESET_IND in SYS, but ZDO_NWK_ADDR_RSP in ZDO, and AF_DATA_CONFIRM
+ *  in AF), so inbound AREQ dispatch must match on cmd_type AND cmd_id. */
+#define ZNP_SUBSYS_SYS      0x21    /* SREQ | subsystem 0x01 */
+#define ZNP_SUBSYS_MAC      0x22
+#define ZNP_SUBSYS_NWK      0x23
+#define ZNP_SUBSYS_AF       0x24
+#define ZNP_SUBSYS_ZDO      0x25
+#define ZNP_SUBSYS_SAPI     0x26
+#define ZNP_SUBSYS_UTIL     0x27
+#define ZNP_SUBSYS_DEBUG    0x28
+#define ZNP_SUBSYS_APP      0x29
+#define ZNP_SUBSYS_APP_CNF  0x2F
+
+#define ZNP_SUBSYS_SYS_AREQ      0x41    /* AREQ | subsystem 0x01 */
+#define ZNP_SUBSYS_MAC_AREQ      0x42
+#define ZNP_SUBSYS_NWK_AREQ      0x43
+#define ZNP_SUBSYS_AF_AREQ       0x44
+#define ZNP_SUBSYS_ZDO_AREQ      0x45
+#define ZNP_SUBSYS_SAPI_AREQ     0x46
+#define ZNP_SUBSYS_UTIL_AREQ     0x47
+#define ZNP_SUBSYS_DEBUG_AREQ    0x48
+#define ZNP_SUBSYS_APP_AREQ      0x49
+#define ZNP_SUBSYS_APP_CNF_AREQ  0x4F
 
 /* Helper: build cmd_type byte from subsystem and frame type */
 #define ZNP_CMD_TYPE(subsys, ftype)  (((subsys) & 0x1F) | (ftype))

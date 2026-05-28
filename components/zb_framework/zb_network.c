@@ -303,7 +303,8 @@ esp_err_t zb_net_startup_and_wait(uint32_t timeout_ms)
         if (znp_transport_receive_areq(&areq, remaining) != pdTRUE) {
             break;
         }
-        if (areq.cmd_id == ZDO_STATE_CHANGE_IND_CMD) {
+        if (areq.cmd_type == ZNP_SUBSYS_ZDO_AREQ &&
+            areq.cmd_id   == ZDO_STATE_CHANGE_IND_CMD) {
             uint8_t dev_state = areq.payload[0];
             ESP_LOGI(TAG, "ZDO_STATE_CHANGE_IND state=0x%02x", dev_state);
             if (dev_state == DEV_ZB_COORD) {

@@ -218,7 +218,7 @@ static void handle_ready(bool *should_reinit)
             continue;
         }
 
-        if (areq.cmd_id == SYS_RESET_IND_CMD) {
+        if (areq.cmd_type == ZNP_SUBSYS_SYS_AREQ && areq.cmd_id == SYS_RESET_IND_CMD) {
             ESP_LOGW(TAG, "unexpected SYS_RESET_IND — re-initializing");
             zb_event_emit(&(zb_event_t){ .type = ZB_EVENT_NETWORK_LOST });
             *should_reinit = true;
