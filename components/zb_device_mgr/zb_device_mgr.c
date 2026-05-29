@@ -370,7 +370,19 @@ static void parse_af_incoming(const znp_frame_t *areq)
 
     /* Decode ZCL frame: frame_ctrl[1], seq[1], cmd[1], payload... */
     if (data_len < 3) return;
-    uint8_t zcl_cmd = zcl[2];
+    uint8_t frame_ctrl = zcl[0];
+    uint8_t zcl_cmd    = zcl[2];
+
+    /* FR-12.3: IAS Zone Status Change Notification (cluster-specific,
+     * cluster 0x0500, cmd 0x00) carries the ZoneStatus bitmap directly in
+     * the command payload — no attribute_id wrapper. Decode it before the
+     * profile-wide path. */
+    if (cluster == 0x0500 &&
+        (frame_ctrl & 0x01) == 0x01 &&    /* cluster-specific frame */
+        zcl_cmd == 0x00) {
+        zb_cap_dispatch_ias_status_change(ieee, src_ep, &zcl[3], data_len - 3);
+        return;
+    }
 
     if (zcl_cmd == ZCL_CMD_REPORT_ATTRIBUTES) {
         /* Report Attributes: attr_id[2], dtype[1], value[n], ... */
@@ -381,18 +393,23 @@ static void parse_af_incoming(const znp_frame_t *areq)
             uint16_t attr_id = (uint16_t)(rp[0] | (rp[1] << 8));
             uint8_t  dtype   = rp[2];
 
-            /* Look up data type size */
+            /* Look up data type size (FR-12 extended types: uint48, int48, float32) */
             uint8_t sz;
             switch (dtype) {
-            case 0x10: sz = 1; break;
-            case 0x20: sz = 1; break;
-            case 0x21: sz = 2; break;
-            case 0x22: sz = 3; break;
-            case 0x23: sz = 4; break;
-            case 0x28: sz = 1; break;
-            case 0x29: sz = 2; break;
-            case 0x2A: sz = 3; break;
-            case 0x2B: sz = 4; break;
+            case 0x10: sz = 1; break;  /* boolean   */
+            case 0x18: sz = 1; break;  /* bitmap8   */
+            case 0x19: sz = 2; break;  /* bitmap16  */
+            case 0x20: sz = 1; break;  /* uint8     */
+            case 0x21: sz = 2; break;  /* uint16    */
+            case 0x22: sz = 3; break;  /* uint24    */
+            case 0x23: sz = 4; break;  /* uint32    */
+            case 0x25: sz = 6; break;  /* uint48 — Metering summations  */
+            case 0x28: sz = 1; break;  /* int8      */
+            case 0x29: sz = 2; break;  /* int16     */
+            case 0x2A: sz = 3; break;  /* int24 — Metering instant demand */
+            case 0x2B: sz = 4; break;  /* int32     */
+            case 0x2D: sz = 6; break;  /* int48     */
+            case 0x39: sz = 4; break;  /* float32 — AnalogInput PresentValue */
             default:   sz = 0; break;
             }
             if (sz == 0 || remaining < (uint8_t)(3 + sz)) break;
